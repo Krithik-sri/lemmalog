@@ -8,6 +8,11 @@ license = "MIT"
 [dependencies]
 serde_json = { version = "1", optional = true }
 ureq = { version = "2", optional = true }
+# GLiNER inference in Rust (lib name `gliner`); pulls in ONNX Runtime via `ort`,
+# so it is optional and off by default.
+gline-rs = { git = "https://github.com/dhaneshkk/gline-rs", branch = "main", optional = true }
+orp = { version = "1.0.0", optional = true }
+composable = { version = "1.0.0", optional = true }
 
 [[bin]]
 name = "lemmalog-mcp"
@@ -20,6 +25,10 @@ required-features = ["llm"]
 [[bin]]
 name = "lemmalog-cli"
 required-features = ["mcp"]
+
+[[example]]
+name = "gliner_memory"
+required-features = ["gliner", "glinker"]
 
 [[example]]
 name = "lmstudio"
@@ -40,3 +49,9 @@ llm = ["dep:ureq", "dep:serde_json"]
 # MCP server binary (Model Context Protocol over stdio) for agent CLIs
 # (Claude Code, Kimi CLI, ...). Needs only serde_json.
 mcp = ["dep:serde_json"]
+# Model-based extraction without an LLM: gline-rs NER + relation extraction.
+gliner = ["dep:gline-rs", "dep:orp", "dep:composable"]
+# Load the ONNX Runtime shared library at run time instead of downloading it at build time.
+gliner-load-dynamic = ["gliner", "gline-rs/load-dynamic"]
+# Entity linking through a GLinker sidecar (HTTP, JSON).
+glinker = ["dep:ureq", "dep:serde_json"]

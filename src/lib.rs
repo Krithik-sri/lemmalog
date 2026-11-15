@@ -29,6 +29,7 @@ pub mod agent;
 pub mod ast;
 pub mod canonical;
 pub mod eval;
+pub mod extract;
 pub mod intern;
 #[cfg(feature = "llm")]
 pub mod llm;

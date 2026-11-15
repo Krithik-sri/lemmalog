@@ -90,7 +90,7 @@ impl Extractor for MockExtractor {
 
 /// Why an entity token fails strict validation, as a self-correcting
 /// reason (echoed to the model that produced it).
-fn entity_token_problem(s: &str) -> Option<String> {
+pub(crate) fn entity_token_problem(s: &str) -> Option<String> {
     // unresolved-reference words: pronouns and role placeholders that mean
     // the model failed to resolve the entity
     const BLOCKED: [&str; 14] = [
