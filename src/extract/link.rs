@@ -2,10 +2,10 @@
 //! entity id ("org:acme") or say it could not be linked.
 //!
 //! [`TableLinker`] is a deterministic alias table, used in tests and for
-//! small closed vocabularies. [`GlinkerHttpLinker`] (feature `glinker`) sends
-//! the mentions to a GLinker sidecar (`scripts/glinker_sidecar.py`), which runs
-//! GLinker's linking pipeline in external-entities mode: the spans come from
-//! gline-rs, GLinker only chooses the entity.
+//! small closed vocabularies. [`GlinkerLinker`] (feature `glinker`) runs
+//! glinker-rs, the Rust port of GLinker, in-process: the spans come from
+//! gline-rs, and glinker-rs's L2 candidate search plus L3/L4 GLiNER linking
+//! only choose the entity (`Executor::link_with_mentions`, which skips L1).
 
 use super::pipeline::Mention;
 use std::collections::HashMap;
@@ -66,86 +66,154 @@ impl EntityLinker for TableLinker {
     }
 }
 
-/// Convert a byte offset into a char offset (Python indexes strings by code
-/// point; Rust and gline-rs use bytes).
+/// Convert a byte offset into a char offset (glinker-rs, like Python GLinker,
+/// uses char offsets; gline-rs uses bytes).
 pub fn byte_to_char(s: &str, byte: usize) -> usize {
     s.char_indices().take_while(|(i, _)| *i < byte).count()
 }
 
-/// GLinker sidecar client.
-///
-/// Request:  `POST {base}/link`
-/// `{"texts": [sentence], "entities": [[{"text", "start", "end", "label"}]]}`
-/// with `start`/`end` in **characters**.
-/// Response: `{"links": [[{"entity_id": "Q1" | "unknown" | null, "confidence": 0.93}]]}`.
+/// Turn glinker-rs L0 output for one sentence into one [`Link`] per mention.
+/// Matching is by exact char span; a mention with no linked entity, or one
+/// below `min_confidence`, is [`Link::Unlinked`].
 #[cfg(feature = "glinker")]
-pub struct GlinkerHttpLinker {
-    base: String,
+pub fn links_from_l0(
+    sentence: &str,
+    mentions: &[Mention],
+    found: &[glinker_rs::L0Entity],
+    min_confidence: f32,
+) -> Vec<Link> {
+    mentions
+        .iter()
+        .map(|m| {
+            let (s, e) = (byte_to_char(sentence, m.start), byte_to_char(sentence, m.end));
+            found
+                .iter()
+                .find(|x| x.mention_start == s && x.mention_end == e)
+                .and_then(|x| x.linked_entity.as_ref().filter(|_| x.is_linked))
+                .filter(|le| le.entity_id != "unknown" && !le.entity_id.is_empty())
+                .filter(|le| le.confidence >= min_confidence)
+                .map(|le| Link::Canonical { id: le.entity_id.clone(), score: le.confidence })
+                .unwrap_or(Link::Unlinked)
+        })
+        .collect()
+}
+
+/// In-process GLinker: a glinker-rs [`Executor`](glinker_rs::Executor) built
+/// from a pipeline config (`pipeline.json`: entities file, L2 search, L3 model
+/// dir, optional L4 reranker). No sidecar, no HTTP.
+#[cfg(feature = "glinker")]
+pub struct GlinkerLinker {
+    executor: glinker_rs::Executor,
     /// Links below this confidence are treated as [`Link::Unlinked`].
     pub min_confidence: f32,
     pub failures: usize,
 }
 
 #[cfg(feature = "glinker")]
-impl GlinkerHttpLinker {
-    pub fn new(base: &str) -> Self {
-        GlinkerHttpLinker {
-            base: base.trim_end_matches('/').to_string(),
-            min_confidence: 0.5,
-            failures: 0,
-        }
+impl GlinkerLinker {
+    pub fn new(executor: glinker_rs::Executor) -> Self {
+        GlinkerLinker { executor, min_confidence: 0.5, failures: 0 }
     }
 
-    fn request(&self, sentence: &str, mentions: &[Mention]) -> Result<Vec<Link>, String> {
-        use serde_json::{json, Value};
-        let ents: Vec<Value> = mentions
-            .iter()
-            .map(|m| {
-                json!({"text": m.text, "label": m.label,
-                       "start": byte_to_char(sentence, m.start),
-                       "end": byte_to_char(sentence, m.end)})
-            })
-            .collect();
-        let body = json!({"texts": [sentence], "entities": [ents]});
-        let text = ureq::post(&format!("{}/link", self.base))
-            .set("Content-Type", "application/json")
-            .send_string(&body.to_string())
-            .map_err(|e| e.to_string())?
-            .into_string()
-            .map_err(|e| e.to_string())?;
-        let resp: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-        let row = resp["links"][0].as_array().ok_or("missing links[0]")?;
-        if row.len() != mentions.len() {
-            return Err(format!("{} links for {} mentions", row.len(), mentions.len()));
-        }
-        Ok(row
-            .iter()
-            .map(|l| {
-                let id = l["entity_id"].as_str().unwrap_or("unknown");
-                let score = l["confidence"].as_f64().unwrap_or(0.0) as f32;
-                if id == "unknown" || id.is_empty() || score < self.min_confidence {
-                    Link::Unlinked
-                } else {
-                    Link::Canonical { id: id.to_string(), score }
-                }
-            })
-            .collect())
+    /// Load the executor from a glinker-rs pipeline config file.
+    pub fn from_config_file(path: &str) -> Result<Self, String> {
+        glinker_rs::Executor::from_config_file(path).map(Self::new).map_err(|e| e.to_string())
+    }
+
+    pub fn executor_mut(&mut self) -> &mut glinker_rs::Executor {
+        &mut self.executor
     }
 }
 
 #[cfg(feature = "glinker")]
-impl EntityLinker for GlinkerHttpLinker {
+impl EntityLinker for GlinkerLinker {
     fn link(&mut self, sentence: &str, mentions: &[Mention]) -> Vec<Link> {
         if mentions.is_empty() {
             return Vec::new();
         }
-        match self.request(sentence, mentions) {
-            Ok(v) => v,
+        let gm: Vec<glinker_rs::Mention> = mentions
+            .iter()
+            .map(|m| {
+                let (s, e) = (byte_to_char(sentence, m.start), byte_to_char(sentence, m.end));
+                glinker_rs::Mention {
+                    text: m.text.clone(),
+                    label: Some(m.label.clone()),
+                    start: s,
+                    end: e,
+                    left_context: sentence[..m.start].to_string(),
+                    right_context: sentence[m.end..].to_string(),
+                }
+            })
+            .collect();
+        match self.executor.link_with_mentions(&[sentence.to_string()], vec![gm]) {
+            Ok(out) => {
+                let found = out.entities.first().map(Vec::as_slice).unwrap_or(&[]);
+                links_from_l0(sentence, mentions, found, self.min_confidence)
+            }
             Err(_) => {
                 // degraded: nothing links, so nothing is asserted
                 self.failures += 1;
                 vec![Link::Unlinked; mentions.len()]
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "glinker"))]
+mod tests {
+    use super::*;
+    use glinker_rs::{L0Entity, LinkedEntity, Stage};
+
+    fn l0(start: usize, end: usize, id: Option<(&str, f32)>) -> L0Entity {
+        L0Entity {
+            mention_text: String::new(),
+            label: None,
+            mention_start: start,
+            mention_end: end,
+            left_context: String::new(),
+            right_context: String::new(),
+            candidates: vec![],
+            num_candidates: 0,
+            linked_entity: id.map(|(i, c)| LinkedEntity {
+                entity_id: i.into(),
+                label: i.into(),
+                confidence: c,
+                start,
+                end,
+                matched_text: String::new(),
+            }),
+            is_linked: id.is_some(),
+            candidate_scores: vec![],
+            pipeline_stage: Stage::L3Linked,
+        }
+    }
+
+    fn m(text: &str, s: &str) -> Mention {
+        let b = s.find(text).unwrap();
+        Mention { text: text.into(), label: "x".into(), start: b, end: b + text.len(), score: 1.0 }
+    }
+
+    #[test]
+    fn maps_char_spans_and_thresholds() {
+        // "é" is two bytes: byte offsets and char offsets differ after it
+        let s = "José works at Acme and Globex.";
+        let ms = [m("José", s), m("Acme", s), m("Globex", s)];
+        let found = [l0(0, 4, Some(("person:jose", 0.9))), l0(14, 18, Some(("org:acme", 0.8))), l0(23, 29, Some(("org:globex", 0.2)))];
+        assert_eq!(
+            links_from_l0(s, &ms, &found, 0.5),
+            vec![
+                Link::Canonical { id: "person:jose".into(), score: 0.9 },
+                Link::Canonical { id: "org:acme".into(), score: 0.8 },
+                Link::Unlinked,
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_or_missing_is_unlinked() {
+        let s = "Bob works at Acme.";
+        let ms = [m("Bob", s), m("Acme", s)];
+        let found = [l0(0, 3, Some(("unknown", 0.99)))];
+        assert_eq!(links_from_l0(s, &ms, &found, 0.0), vec![Link::Unlinked, Link::Unlinked]);
     }
 }

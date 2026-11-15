@@ -10,6 +10,8 @@ pub mod pipeline;
 pub mod gline;
 
 pub use link::{EntityLinker, Link, TableLinker};
+#[cfg(feature = "glinker")]
+pub use link::GlinkerLinker;
 pub use negex::NegEx;
 pub use pipeline::{
     FixtureBackend, GlinerExtractor, Mention, RawRelation, RejectReason, Rejection,
