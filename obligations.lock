@@ -1,0 +1,71 @@
+{
+  "version": 2,
+  "approver": "Dhanesh",
+  "criteria_commit": "27386ec4ced734c7a87008c1cd6416cc001c8cb6",
+  "obligations_digest": "72d0eeda00c7e9661e5aae654c742c577d7920f413cc2d91e40a75cde022f0d7",
+  "entries": [
+    {
+      "obligation": "SPEC-7.1-O1",
+      "path": "tests/extraction_test.rs",
+      "name": "negated_relations_produce_no_fact",
+      "lang": "rust",
+      "hash": "705702fdbbdb827faaffc4d3f06f4ce7ee8a8a4a73fd3a1e2333aad2036476a1"
+    },
+    {
+      "obligation": "SPEC-7.1-O1",
+      "path": "tests/extraction_test.rs",
+      "name": "negation_is_per_relation_within_a_sentence",
+      "lang": "rust",
+      "hash": "4fe321f0266fe40c5b709c2933605a2758caa563b2b1a43892e1a45e6e6346e5"
+    },
+    {
+      "obligation": "SPEC-7.1-O1",
+      "path": "tests/extraction_test.rs",
+      "name": "pseudo_triggers_and_terminated_scopes_do_not_negate",
+      "lang": "rust",
+      "hash": "b9e7e8054731b21b2ed2ebf05e750ce389321505aba2fbb584ae4ce3d4953e97"
+    },
+    {
+      "obligation": "SPEC-7.1-O2",
+      "path": "tests/extraction_test.rs",
+      "name": "facts_use_canonical_ids_from_the_linker",
+      "lang": "rust",
+      "hash": "2af9e61aad4ea266008d42782576bed3356bf5ad106069658475e2225844f9e1"
+    },
+    {
+      "obligation": "SPEC-7.1-O2",
+      "path": "tests/extraction_test.rs",
+      "name": "first_person_mentions_link_as_the_speaker",
+      "lang": "rust",
+      "hash": "a54e707616f5d8e4256e21343068144e41794653d2d4196c4e9339e49ff20f3d"
+    },
+    {
+      "obligation": "SPEC-7.1-O2",
+      "path": "tests/extraction_test.rs",
+      "name": "unlinked_mentions_produce_no_fact",
+      "lang": "rust",
+      "hash": "f9b71260984bda38095b2066ae7a5b0a63c87bbcecdffcb63e9b88c43ff6da5c"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/extraction_test.rs",
+      "name": "backend_failure_yields_no_facts_and_is_counted",
+      "lang": "rust",
+      "hash": "683faba8e7cf829b0f611d8c118ee1d64c3d028ab1f73c3a1a18837833de171e"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/extraction_test.rs",
+      "name": "extraction_is_memoized_and_repeatable",
+      "lang": "rust",
+      "hash": "867731792b5eb159ca719f2713bdf636924ad1e7bf3666048fbb5da9ea074425"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/extraction_test.rs",
+      "name": "output_is_deduplicated_and_sorted",
+      "lang": "rust",
+      "hash": "97a342b898458d058ef12977a4f63fcdd7bed40485a24f37e1f32c1c245de703"
+    }
+  ]
+}
