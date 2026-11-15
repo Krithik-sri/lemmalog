@@ -9,9 +9,10 @@ deterministic stages:
 1. **gline-rs** runs a GLiNER multitask model (ONNX, token mode) for named
    entities and relations. Feature `gliner`.
 2. **NegEx** drops relations whose object sits inside a negation scope.
-3. **GLinker** links each mention to a canonical entity id, via a sidecar in
-   external-entities mode. Feature `glinker`. Tests use the deterministic
-   `TableLinker`.
+3. **glinker-rs**, the Rust port of GLinker, links each mention to a canonical
+   entity id in-process. It runs `Executor::link_with_mentions`, which skips L1
+   because gline-rs already found the spans. Feature `glinker`. Tests use the
+   deterministic `TableLinker`.
 
 The three obligations below are what this change promises. Each one has
 tagged Rust tests in `tests/extraction_test.rs`. `obligations.lock` on `main`
@@ -67,6 +68,6 @@ obligations:
 - Coreference beyond first-person pronouns ("she", "the company").
 - Temporal negation ("used to work at"). This is a supersession, so it belongs
   to the bi-temporal layer rather than to extraction.
-- Accuracy targets for the ONNX model and the GLinker database. Measure those
-  with MCC on a labelled episode set (see `tests/eval_test.rs`). They are not
-  pass/fail checks for this gate.
+- Accuracy targets for the ONNX models and the entity database. Measure those
+  with MCC on a labelled set (glinker-rs `glinker eval` reports MCC for
+  linking). They are not pass/fail checks for this gate.

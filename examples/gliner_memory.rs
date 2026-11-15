@@ -1,23 +1,27 @@
 //! Agent memory with LLM-free extraction: gline-rs + NegEx + GLinker.
 //!
 //! ```text
-//! python scripts/glinker_sidecar.py --entities data/entities.jsonl &
+//! export ORT_DYLIB_PATH=/path/to/libonnxruntime.so   # onnxruntime 1.20.x
 //! cargo run --example gliner_memory --features gliner,glinker -- \
 //!     models/gliner-multitask-large-v0.5/tokenizer.json \
-//!     models/gliner-multitask-large-v0.5/onnx/model.onnx http://127.0.0.1:8765
+//!     models/gliner-multitask-large-v0.5/onnx/model.onnx glinker/pipeline.json
 //! ```
+//!
+//! `pipeline.json` is a glinker-rs pipeline config with `"l1": "none"`
+//! (mentions come from gline-rs), an `entities` JSONL file and an `l3` model
+//! dir; see the glinker-rs README.
 use lemmalog::agent::{Episode, Extractor};
 use lemmalog::extract::gline::GlineBackend;
-use lemmalog::extract::link::GlinkerHttpLinker;
+use lemmalog::extract::link::GlinkerLinker;
 use lemmalog::extract::GlinerExtractor;
 
 fn main() -> Result<(), String> {
     let a: Vec<String> = std::env::args().collect();
     if a.len() < 4 {
-        return Err("usage: gliner_memory <tokenizer.json> <model.onnx> <glinker-url>".into());
+        return Err("usage: gliner_memory <tokenizer.json> <model.onnx> <glinker-pipeline.json>".into());
     }
     let backend = GlineBackend::new(&a[1], &a[2])?;
-    let mut x = GlinerExtractor::new(backend, GlinkerHttpLinker::new(&a[3]));
+    let mut x = GlinerExtractor::new(backend, GlinkerLinker::from_config_file(&a[3])?);
     for (i, text) in [
         "Bob Smith works at Acme Corp.",
         "Bob doesn't work at Initech anymore.",
