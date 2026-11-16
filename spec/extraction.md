@@ -53,8 +53,11 @@ obligations:
       Extraction is deterministic and memoized, and calls no LLM. The backend
       runs at most once per episode id, and extracting the same episode again
       returns identical facts. Output holds one fact per (subject, predicate,
-      object), with the highest confidence, sorted by that triple. A backend
-      error yields no facts and counts as a failure in stats().
+      object), with the highest confidence, sorted by that triple. Relations
+      scoring below min_score are rejected with reason LowScore. A backend
+      error, or a backend reply whose length does not match the sentences,
+      yields no facts and counts as a failure in stats(). Blank pieces of text
+      are not sent to the backend as sentences.
     kind: property
     risk: medium
     scope:
