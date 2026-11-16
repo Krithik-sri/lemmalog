@@ -405,4 +405,9 @@ fn fixture_backend_reports_exact_spans_and_counts_calls() {
     assert_eq!((r.object.start, r.object.end), (13, 17));
     assert_eq!(a[0].mentions.len(), 2);
     assert_eq!(b.calls, 1);
+    // subject not at the start: offsets are absolute, not relative to the subject
+    let a = b.analyse(&["Then Bob works at Acme".to_string()]).unwrap();
+    let r = &a[0].relations[0];
+    assert_eq!((r.subject.start, r.object.start, r.object.end), (5, 18, 22));
+    assert_eq!(b.calls, 2);
 }
