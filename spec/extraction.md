@@ -58,7 +58,13 @@ obligations:
       reason Unlinked. A relation the model reports whose subject or object
       is not a mention of its sentence produces no fact and is reported with
       reason Unresolved. First-person mentions (I, me, my, myself), as
-      subject or object, are linked as the episode's speaker.
+      subject or object, are linked as the episode's speaker: the speaker's
+      name is linked once per episode, on its own, and pronouns never reach
+      the linker. A leading title ("Dr.", "Mrs") is stripped from a mention
+      before linking. TableLinker links an alias only when exactly one
+      entity claims it for the mention's label; CascadeLinker links with its
+      first linker and asks the second only for what the first left
+      unlinked.
     kind: contract
     risk: high
     scope:
@@ -84,7 +90,11 @@ obligations:
       Facts follow lemmalog's predicate direction. X --manager--> Y means X
       reports to Y: "reports to" relations keep their direction and "manager
       of" relations are inverted, so "Dana is the manager of Bob" and "Bob
-      reports to Dana" both give person:bob --manager--> person:dana.
+      reports to Dana" both give person:bob --manager--> person:dana. One
+      sentence never yields a fact in both directions: when it would, the
+      fact whose relation label appears in the sentence wins, then the one
+      with higher confidence, then the smaller triple; the other is reported
+      with reason Reversed. Facts from different sentences are not compared.
     kind: contract
     risk: high
     scope:
