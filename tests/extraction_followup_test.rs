@@ -217,3 +217,85 @@ fn cached_backend_runs_the_model_once_per_sentence() {
     assert_eq!(cb.misses, 1);
     assert_eq!(cb.inner.calls, 1);
 }
+
+// ---------------------- direction tie-break under a low-confidence linker
+
+/// Replays fixed relations for every sentence.
+struct Canned(lemmalog::extract::SentenceAnalysis);
+
+impl lemmalog::extract::RelationBackend for Canned {
+    fn analyse(&mut self, s: &[String]) -> Result<Vec<lemmalog::extract::SentenceAnalysis>, String> {
+        Ok(vec![self.0.clone(); s.len()])
+    }
+}
+
+/// A table linker whose every link has the same low score, like glinker-rs
+/// on short names.
+struct Low(TableLinker);
+
+impl EntityLinker for Low {
+    fn link(&mut self, s: &str, m: &[Mention]) -> Vec<Link> {
+        self.0
+            .link(s, m)
+            .into_iter()
+            .map(|l| match l { Link::Canonical { id, .. } => Link::Canonical { id, score: 0.4 }, u => u })
+            .collect()
+    }
+}
+
+// obligation: SPEC-7.1-O4
+#[test]
+fn same_label_both_ways_is_decided_by_wording_position_not_link_scores() {
+    // e05 under glinker-rs: "reports to" fired both ways; link scores (0.4)
+    // capped both confidences to a tie, and the triple order picked the
+    // wrong direction
+    use lemmalog::extract::{RawRelation, SentenceAnalysis};
+    let s = "Sam reports to Priya.";
+    let (sam, priya) = (mention(s, "Sam", "person"), mention(s, "Priya", "person"));
+    let rel = |a: &Mention, b: &Mention, score| RawRelation { subject: a.clone(), label: "reports to".into(), object: b.clone(), score };
+    for (right, wrong) in [(0.6, 0.9), (0.9, 0.6), (0.7, 0.7)] {
+        let a = SentenceAnalysis {
+            mentions: vec![sam.clone(), priya.clone()],
+            relations: vec![rel(&sam, &priya, right), rel(&priya, &sam, wrong)],
+            ..Default::default()
+        };
+        let mut x = GlinerExtractor::new(Canned(a), Low(linker()));
+        let f = x.extract(&ep("e05", s));
+        assert_eq!(triples(&f), [("person:sam", "manager", "person:priya")], "scores {right}/{wrong}");
+        assert!((f[0].confidence - 0.4).abs() < 1e-6, "confidence still includes the link score");
+    }
+}
+
+// obligation: SPEC-7.1-O4
+#[test]
+fn without_wording_the_relation_score_decides_not_the_link_score() {
+    use lemmalog::extract::{RawRelation, SentenceAnalysis};
+    let s = "Sam works under Priya.";
+    let (sam, priya) = (mention(s, "Sam", "person"), mention(s, "Priya", "person"));
+    let rel = |a: &Mention, b: &Mention, score| RawRelation { subject: a.clone(), label: "reports to".into(), object: b.clone(), score };
+    for (sp, ps, want) in [(0.9, 0.6, ("person:sam", "person:priya")), (0.6, 0.9, ("person:priya", "person:sam"))] {
+        let a = SentenceAnalysis {
+            mentions: vec![sam.clone(), priya.clone()],
+            relations: vec![rel(&sam, &priya, sp), rel(&priya, &sam, ps)],
+            ..Default::default()
+        };
+        let mut x = GlinerExtractor::new(Canned(a), Low(linker()));
+        let f = x.extract(&ep("e", s));
+        assert_eq!(triples(&f), [(want.0, "manager", want.1)]);
+    }
+}
+
+#[test]
+fn worded_between_needs_subject_label_object_order() {
+    use lemmalog::extract::{worded_between, RawRelation};
+    let s = "Priya is the manager of Sam.";
+    let r = |a: &str, label: &str, b: &str| RawRelation {
+        subject: mention(s, a, "person"),
+        label: label.into(),
+        object: mention(s, b, "person"),
+        score: 0.9,
+    };
+    assert!(worded_between(s, &r("Priya", "manager of", "Sam")));
+    assert!(!worded_between(s, &r("Sam", "manager of", "Priya")), "object before subject");
+    assert!(!worded_between(s, &r("Priya", "reports to", "Sam")), "label not written");
+}

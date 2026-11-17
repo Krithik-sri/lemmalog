@@ -130,6 +130,11 @@ impl<B: RelationBackend> CachedBackend<B> {
     pub fn new(inner: B) -> Self {
         CachedBackend { inner, cache: HashMap::new(), misses: 0 }
     }
+
+    /// The cached model output for a sentence, if it was analysed.
+    pub fn analysis(&self, sentence: &str) -> Option<&SentenceAnalysis> {
+        self.cache.get(sentence)
+    }
 }
 
 impl<B: RelationBackend> RelationBackend for CachedBackend<B> {
@@ -291,6 +296,17 @@ pub fn split_sentences(text: &str) -> Vec<String> {
     }
     push(&mut cur, &mut out);
     out
+}
+
+/// Is the relation's label written between its subject and its object, in
+/// that order ("Sam [reports to] Priya", "Priya is the [manager of] Sam")?
+/// This is the sentence's own evidence for the relation's direction; the
+/// same label read the other way round ("Priya reports to Sam") has none.
+pub fn worded_between(sentence: &str, r: &RawRelation) -> bool {
+    r.subject.end <= r.object.start
+        && sentence
+            .get(r.subject.end..r.object.start)
+            .map_or(false, |between| between.to_lowercase().contains(&r.label.to_lowercase()))
 }
 
 /// Drop a leading title ("Dr. Smith" -> "Smith", "Mrs Lee" -> "Lee") from
@@ -467,9 +483,9 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
                     links[*i] = l;
                 }
             }
-            // this sentence's facts: triple -> (cue, confidence, relation)
-            let mut found: BTreeMap<(String, String, String), (bool, f64, RawRelation)> = BTreeMap::new();
-            let lower = sentence.to_lowercase();
+            // this sentence's facts: triple -> (cue, relation score, best
+            // confidence, relation)
+            let mut found: BTreeMap<(String, String, String), (bool, f32, f64, RawRelation)> = BTreeMap::new();
             for (i, (r, pred, inverse)) in kept.iter().enumerate() {
                 let (s, o) = (links.get(2 * i), links.get(2 * i + 1));
                 let (Some(Link::Canonical { id: sid, score: ss }), Some(Link::Canonical { id: oid, score: os })) = (s, o) else {
@@ -486,26 +502,30 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
                 }
                 let (sid, oid) = if *inverse { (oid, sid) } else { (sid, oid) };
                 let conf = r.score.min(*ss).min(*os) as f64;
-                // the relation's own wording ("reports to", "manager of") in
-                // the sentence is the strongest evidence for its direction
-                let cue = lower.contains(&r.label.to_lowercase());
+                let cue = worded_between(sentence, r);
                 let key = (sid.clone(), pred.clone(), oid.clone());
-                let better = match found.get(&key) {
-                    Some((c, f, _)) => (cue, conf) > (*c, *f),
-                    None => true,
-                };
-                if better {
-                    found.insert(key, (cue, conf, r.clone()));
+                match found.get_mut(&key) {
+                    Some(e) => {
+                        e.2 = e.2.max(conf);
+                        if (cue, r.score) > (e.0, e.1) {
+                            (e.0, e.1, e.3) = (cue, r.score, r.clone());
+                        }
+                    }
+                    None => {
+                        found.insert(key, (cue, r.score, conf, r.clone()));
+                    }
                 }
             }
             // one sentence never asserts a fact in both directions: keep the
-            // one with the cue, then the higher confidence, then the smaller
-            // triple (a strict order, so exactly one survives)
+            // one worded in the sentence, then the higher relation score, then
+            // the smaller triple (a strict order, so exactly one survives).
+            // Link scores are not compared: both directions link the same two
+            // mentions, so they say nothing about direction.
             let losers: Vec<(String, String, String)> = found
                 .iter()
-                .filter(|((a, p, b), (c, f, _))| {
+                .filter(|((a, p, b), (c, f, _, _))| {
                     a != b
-                        && found.get(&(b.clone(), p.clone(), a.clone())).map_or(false, |(c2, f2, _)| {
+                        && found.get(&(b.clone(), p.clone(), a.clone())).map_or(false, |(c2, f2, _, _)| {
                             let me = (*c, *f);
                             let other = (*c2, *f2);
                             me < other || (me == other && (a, b) > (b, a))
@@ -514,10 +534,10 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
                 .map(|(k, _)| k.clone())
                 .collect();
             for k in &losers {
-                let (_, _, r) = found.remove(k).unwrap();
+                let (_, _, _, r) = found.remove(k).unwrap();
                 self.reject(ep, &r, RejectReason::Reversed);
             }
-            for ((subj, pred, obj), (_, conf, _)) in found {
+            for ((subj, pred, obj), (_, _, conf, _)) in found {
                 let e = facts.entry((subj, pred, obj)).or_insert(0.0);
                 if conf > *e {
                     *e = conf;

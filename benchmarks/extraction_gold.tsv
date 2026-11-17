@@ -1,26 +1,26 @@
 # Gold set for LLM-free extraction (GLiNER + NegEx + linking).
-#   @	entity id	GLiNER label	alias|alias	-- entity table (also the glinker-rs entity DB)
+#   @	entity id	GLiNER label	alias|alias	[description]	-- entity table (also the glinker-rs entity DB)
 #   ep	episode id	speaker	text
 #   +	subject id	predicate	object id	-- must be extracted from the episode above
 #   -	subject id	predicate	object id	-- must NOT be extracted (negated, stale, reversed)
 # Any extracted triple not listed counts as a false positive.
-@	person:bob	person	Bob|Bob Smith|Smith
-@	person:dana	person	Dana|Dana Lee
-@	person:priya	person	Priya|Priya Raman
-@	person:sam	person	Sam|Sam Ortiz
-@	org:acme	organization	Acme|Acme Corp|Acme Corp.
-@	org:initech	organization	Initech
-@	org:globex	organization	Globex|Globex Inc.
-@	loc:chennai	location	Chennai
-@	loc:berlin	location	Berlin
-@	loc:austin	location	Austin
-@	team:chess	team	chess club|the chess club
-@	team:platform	team	platform team|the platform team
-@	title:cto	job title	CTO
-@	title:data-engineer	job title	data engineer
-@	thing:sushi	food	sushi
-@	thing:jazz	thing	jazz
-@	thing:hiking	activity	hiking
+@	person:bob	person	Bob|Bob Smith|Smith	human; a person named Bob Smith
+@	person:dana	person	Dana|Dana Lee	human; a person named Dana Lee
+@	person:priya	person	Priya|Priya Raman	human; a person named Priya Raman
+@	person:sam	person	Sam|Sam Ortiz	human; a person named Sam Ortiz
+@	org:acme	organization	Acme|Acme Corp|Acme Corp.	company; a business organization called Acme Corp
+@	org:initech	organization	Initech	company; a software business called Initech
+@	org:globex	organization	Globex|Globex Inc.	company; a corporation called Globex Inc.
+@	loc:chennai	location	Chennai	city in Tamil Nadu, India
+@	loc:berlin	location	Berlin	city; the capital of Germany
+@	loc:austin	location	Austin	city in Texas, United States
+@	team:chess	team	chess club|the chess club	club; a group of people who play chess
+@	team:platform	team	platform team|the platform team	team; an engineering team that builds the platform
+@	title:cto	job title	CTO	job title; chief technology officer
+@	title:data-engineer	job title	data engineer	job title; an engineer who builds data pipelines
+@	thing:sushi	food	sushi	food; Japanese dish of vinegared rice
+@	thing:jazz	thing	jazz	genre of music
+@	thing:hiking	activity	hiking	activity; walking long distances on trails
 ep	e01	Dana	Bob Smith works at Acme Corp.
 +	person:bob	works_at	org:acme
 ep	e02	Dana	Bob doesn't work at Initech anymore.

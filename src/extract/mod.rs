@@ -15,6 +15,6 @@ pub use link::{CascadeLinker, EntityLinker, Link, TableLinker};
 pub use link::GlinkerLinker;
 pub use negex::NegEx;
 pub use pipeline::{
-    resolve_relations, split_sentences, strip_title, CachedBackend, FixtureBackend, GlinerExtractor, Mention, ModelRelation,
+    resolve_relations, split_sentences, strip_title, worded_between, CachedBackend, FixtureBackend, GlinerExtractor, Mention, ModelRelation,
     RawRelation, RejectReason, Rejection, RelationBackend, SentenceAnalysis, DEFAULT_RELATIONS,
 };
