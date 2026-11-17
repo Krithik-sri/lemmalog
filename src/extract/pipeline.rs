@@ -46,12 +46,75 @@ pub struct RawRelation {
 pub struct SentenceAnalysis {
     pub mentions: Vec<Mention>,
     pub relations: Vec<RawRelation>,
+    /// Relations the model reported whose subject or object is not one of
+    /// this sentence's mentions: (subject text, label, object text).
+    /// Reported as [`RejectReason::Unresolved`], never dropped silently.
+    pub unresolved: Vec<(String, String, String)>,
+}
+
+/// A relation as a model reports it before it is tied to mention spans:
+/// GLiNER multitask gives the subject as text only, and the object as text
+/// plus a span that may be relative to the model's prompt, not the sentence.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModelRelation {
+    pub subject: String,
+    pub label: String,
+    pub object: String,
+    /// The object's byte span in the sentence, if known. Ignored unless it
+    /// lies in the sentence and covers exactly `object`.
+    pub object_span: Option<(usize, usize)>,
+    pub score: f32,
+}
+
+/// Tie model relations to this sentence's mentions. The object is the
+/// mention at `object_span` when that span is valid, otherwise the mention
+/// with the object's text nearest the subject; the subject is the mention
+/// with the subject's text nearest the object (never the object itself).
+/// A relation with no matching subject or object mention is unresolved.
+pub fn resolve_relations(sentence: &str, mentions: Vec<Mention>, rels: &[ModelRelation]) -> SentenceAnalysis {
+    let mut out = SentenceAnalysis { mentions, ..Default::default() };
+    let dist = |a: &Mention, b: &Mention| (a.start as i64 - b.start as i64).abs();
+    for r in rels {
+        let hinted = r
+            .object_span
+            .filter(|&(a, b)| sentence.get(a..b) == Some(r.object.as_str()))
+            .and_then(|(a, b)| out.mentions.iter().find(|m| m.start == a && m.end == b));
+        let objects: Vec<&Mention> = match hinted {
+            Some(m) => vec![m],
+            None => out.mentions.iter().filter(|m| m.text == r.object).collect(),
+        };
+        let best = objects
+            .iter()
+            .flat_map(|o| {
+                out.mentions
+                    .iter()
+                    .filter(|s| s.text == r.subject && (s.start, s.end) != (o.start, o.end))
+                    .map(move |s| (dist(s, o), s.start, o.start, s, *o))
+            })
+            .min_by_key(|(d, ss, os, _, _)| (*d, *ss, *os));
+        match best {
+            Some((_, _, _, s, o)) => out.relations.push(RawRelation {
+                subject: s.clone(),
+                label: r.label.clone(),
+                object: o.clone(),
+                score: r.score,
+            }),
+            None => out.unresolved.push((r.subject.clone(), r.label.clone(), r.object.clone())),
+        }
+    }
+    out
 }
 
 /// NER + relation extraction over a batch of sentences.
 pub trait RelationBackend {
     /// One analysis per input sentence, same order.
     fn analyse(&mut self, sentences: &[String]) -> Result<Vec<SentenceAnalysis>, String>;
+}
+
+impl<B: RelationBackend + ?Sized> RelationBackend for &mut B {
+    fn analyse(&mut self, sentences: &[String]) -> Result<Vec<SentenceAnalysis>, String> {
+        (**self).analyse(sentences)
+    }
 }
 
 /// Why a raw relation did not become a fact.
@@ -62,6 +125,11 @@ pub enum RejectReason {
     BadEntity(String),
     LowScore,
     UnknownRelation,
+    /// The model named a subject or object that is not a mention of the
+    /// sentence it was found in.
+    Unresolved,
+    /// A mention span is not a valid byte range of its sentence.
+    BadSpan,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,21 +143,26 @@ pub struct Rejection {
 
 /// Map from the model's relation labels to lemmalog predicates, matching
 /// the vocabulary of [`EXTRACTION_PROMPT`](crate::agent::EXTRACTION_PROMPT).
-/// Each entry: (GLiNER label, predicate, subject labels, object labels).
-pub const DEFAULT_RELATIONS: &[(&str, &str, &[&str], &[&str])] = &[
-    ("works at", "works_at", &["person"], &["organization"]),
-    ("manager of", "manager", &["person"], &["person"]),
-    ("likes", "likes", &["person"], &["thing", "food", "activity", "organization"]),
-    ("job title", "job_title", &["person"], &["job title"]),
-    ("member of", "member_of", &["person"], &["organization", "team"]),
-    ("located in", "located_in", &["person", "organization"], &["location"]),
+/// Each entry: (GLiNER label, predicate, subject labels, object labels,
+/// inverse). `inverse` swaps subject and object: lemmalog reads
+/// `X --manager--> Y` as "X reports to Y" (`reports_to(X,Y) :-
+/// edge(X,"manager",Y,..)`), so "Dana is the manager of Bob" becomes
+/// `Bob --manager--> Dana`.
+pub const DEFAULT_RELATIONS: &[(&str, &str, &[&str], &[&str], bool)] = &[
+    ("works at", "works_at", &["person"], &["organization"], false),
+    ("reports to", "manager", &["person"], &["person"], false),
+    ("manager of", "manager", &["person"], &["person"], true),
+    ("likes", "likes", &["person"], &["thing", "food", "activity", "organization"], false),
+    ("job title", "job_title", &["person"], &["job title"], false),
+    ("member of", "member_of", &["person"], &["organization", "team"], false),
+    ("located in", "located_in", &["person", "organization"], &["location"], false),
 ];
 
 /// The GLiNER entity labels the default relation set needs.
 pub fn default_entity_labels() -> Vec<String> {
     let mut v: Vec<String> = DEFAULT_RELATIONS
         .iter()
-        .flat_map(|(_, _, s, o)| s.iter().chain(o.iter()))
+        .flat_map(|(_, _, s, o, _)| s.iter().chain(o.iter()))
         .map(|s| s.to_string())
         .collect();
     v.sort();
@@ -97,30 +170,88 @@ pub fn default_entity_labels() -> Vec<String> {
     v
 }
 
+/// Words that end in "." without ending a sentence when the next word is
+/// capitalised (titles, initials-style abbreviations).
+const TITLES: &[&str] = &["dr", "mr", "mrs", "ms", "prof", "st", "sr", "jr", "rev", "gen", "col", "capt", "lt", "sgt", "hon"];
+/// Abbreviations that end a sentence only if the next word is capitalised.
+const ABBREVS: &[&str] = &[
+    "inc", "corp", "ltd", "co", "llc", "plc", "bros", "dept", "univ", "vs", "etc", "e.g", "i.e",
+    "approx", "no", "vol", "fig", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept",
+    "oct", "nov", "dec", "mon", "tue", "wed", "thu", "fri", "sat", "sun", "u.s", "u.k", "a.m", "p.m",
+];
+
 /// Split into sentences on `.`, `!`, `?` and newlines, keeping the
-/// terminator with its sentence. Empty pieces are dropped.
+/// terminator with its sentence. Empty pieces are dropped. A run of
+/// terminators ("...", "?!") is one boundary. A "." does not split inside a
+/// number ("2.5"), after a title ("Dr. Smith"), or after an abbreviation or
+/// single letter ("Acme Corp. in Austin", "the U.S. last year") unless the
+/// next word starts with a capital letter. An ellipsis followed by a
+/// lower-case word does not split either.
 pub fn split_sentences(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
     let mut cur = String::new();
-    for c in text.chars() {
+    let push = |cur: &mut String, out: &mut Vec<String>| {
+        if !cur.trim().is_empty() {
+            out.push(cur.trim().to_string());
+        }
+        cur.clear();
+    };
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
         if c == '\n' {
-            if !cur.trim().is_empty() {
-                out.push(cur.trim().to_string());
-            }
-            cur.clear();
+            push(&mut cur, &mut out);
+            i += 1;
             continue;
         }
-        cur.push(c);
-        if matches!(c, '.' | '!' | '?') {
-            if !cur.trim().is_empty() {
-                out.push(cur.trim().to_string());
-            }
-            cur.clear();
+        if !matches!(c, '.' | '!' | '?') {
+            cur.push(c);
+            i += 1;
+            continue;
         }
+        // the whole run of terminators
+        let mut j = i;
+        while j < chars.len() && matches!(chars[j], '.' | '!' | '?') {
+            cur.push(chars[j]);
+            j += 1;
+        }
+        let run = j - i;
+        let prev = if i > 0 { Some(chars[i - 1]) } else { None };
+        let next = chars.get(j).copied();
+        let next_word = chars[j..].iter().find(|c| !c.is_whitespace()).copied();
+        let next_upper = next_word.map_or(true, |c| c.is_uppercase() || !c.is_alphabetic());
+        // the word just before the terminator, lower-cased, keeping inner dots
+        let word: String = {
+            let w: String = cur[..cur.len() - run]
+                .chars()
+                .rev()
+                .take_while(|c| c.is_alphanumeric() || *c == '.')
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            w.to_lowercase()
+        };
+        let only_dots = chars[i..j].iter().all(|c| *c == '.');
+        let keep = if run == 1 && c == '.' {
+            let in_number = prev.map_or(false, |p| p.is_ascii_digit()) && next.map_or(false, |n| n.is_ascii_digit());
+            let single_letter = word.len() == 1 && word.chars().all(char::is_alphabetic)
+                || word.split('.').all(|p| p.chars().count() == 1 && p.chars().all(char::is_alphabetic));
+            in_number
+                || next.map_or(false, |n| !n.is_whitespace()) && next.map_or(false, |n| n.is_alphanumeric())
+                || TITLES.contains(&word.as_str())
+                || (ABBREVS.contains(&word.as_str()) || single_letter) && !next_upper
+        } else {
+            // "..." before a lower-case word continues the sentence
+            only_dots && run > 1 && !next_upper
+        };
+        if !keep {
+            push(&mut cur, &mut out);
+        }
+        i = j;
     }
-    if !cur.trim().is_empty() {
-        out.push(cur.trim().to_string());
-    }
+    push(&mut cur, &mut out);
     out
 }
 
@@ -128,7 +259,7 @@ pub struct GlinerExtractor<B: RelationBackend, L: EntityLinker> {
     backend: B,
     linker: L,
     pub negex: NegEx,
-    relations: HashMap<String, String>,
+    relations: HashMap<String, (String, bool)>,
     /// Relations scoring below this are dropped.
     pub min_score: f32,
     seen: HashMap<String, Vec<CandidateFact>>,
@@ -145,7 +276,7 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
             negex: NegEx::default(),
             relations: DEFAULT_RELATIONS
                 .iter()
-                .map(|(l, p, _, _)| (l.to_string(), p.to_string()))
+                .map(|(l, p, _, _, inv)| (l.to_string(), (p.to_string(), *inv)))
                 .collect(),
             min_score: 0.5,
             seen: HashMap::new(),
@@ -174,7 +305,8 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
         });
     }
 
-    /// First-person mentions ("I", "me", "my") stand for the speaker.
+    /// First-person mentions ("I", "me", "my", "myself") stand for the
+    /// speaker, as subject or object.
     fn resolve_speaker(m: &Mention, ep: &Episode) -> Mention {
         let lower = m.text.to_lowercase();
         match &ep.speaker {
@@ -200,34 +332,60 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
         // (subj, pred, obj) -> best confidence; BTreeMap keeps output order stable
         let mut facts: BTreeMap<(String, String, String), f64> = BTreeMap::new();
         for (sentence, a) in sentences.iter().zip(analyses) {
+            for (subject, relation, object) in &a.unresolved {
+                self.rejected.push(Rejection {
+                    episode: ep.id.clone(),
+                    subject: subject.clone(),
+                    relation: relation.clone(),
+                    object: object.clone(),
+                    reason: RejectReason::Unresolved,
+                });
+            }
+            let valid = |m: &Mention| {
+                m.start <= m.end
+                    && sentence.is_char_boundary(m.start)
+                    && sentence.is_char_boundary(m.end)
+                    && m.end <= sentence.len()
+            };
             // keep the relations that survive the cheap checks, then link
             // their mentions in one linker call per sentence
-            let mut kept: Vec<(RawRelation, String)> = Vec::new();
-            for r in a.relations {
-                let Some(pred) = self.relations.get(&r.label).cloned() else {
-                    self.reject(ep, &r, RejectReason::UnknownRelation);
+            let mut kept: Vec<(RawRelation, String, bool)> = Vec::new();
+            for r in &a.relations {
+                let Some((pred, inverse)) = self.relations.get(&r.label).cloned() else {
+                    self.reject(ep, r, RejectReason::UnknownRelation);
                     continue;
                 };
+                if !valid(&r.subject) || !valid(&r.object) {
+                    self.reject(ep, r, RejectReason::BadSpan);
+                    continue;
+                }
                 if r.score < self.min_score {
-                    self.reject(ep, &r, RejectReason::LowScore);
+                    self.reject(ep, r, RejectReason::LowScore);
                     continue;
                 }
-                if self.negex.negated(sentence, (r.object.start, r.object.end), r.subject.start)
-                {
-                    self.reject(ep, &r, RejectReason::Negated);
+                let span = |m: &Mention| (m.start, m.end);
+                let others: Vec<(usize, usize)> = a
+                    .mentions
+                    .iter()
+                    .filter(|m| valid(m))
+                    .map(span)
+                    .filter(|s| *s != span(&r.subject) && *s != span(&r.object))
+                    .collect();
+                if self.negex.negated_with(sentence, span(&r.object), r.subject.start, &others) {
+                    self.reject(ep, r, RejectReason::Negated);
                     continue;
                 }
-                kept.push((r, pred));
+                kept.push((r.clone(), pred, inverse));
             }
             if kept.is_empty() {
                 continue;
             }
             let mentions: Vec<Mention> = kept
                 .iter()
-                .flat_map(|(r, _)| [Self::resolve_speaker(&r.subject, ep), r.object.clone()])
+                .flat_map(|(r, _, _)| [Self::resolve_speaker(&r.subject, ep), Self::resolve_speaker(&r.object, ep)])
                 .collect();
             let links = self.linker.link(sentence, &mentions);
-            for (i, (r, pred)) in kept.iter().enumerate() {
+            for (i, (r, pred, inverse)) in kept.iter().enumerate() {
                 let (s, o) = (links.get(2 * i), links.get(2 * i + 1));
                 let (Some(Link::Canonical { id: sid, score: ss }), Some(Link::Canonical { id: oid, score: os })) = (s, o) else {
                     let which = match s {
@@ -241,6 +399,7 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
                     self.reject(ep, r, RejectReason::BadEntity(p));
                     continue;
                 }
+                let (sid, oid) = if *inverse { (oid, sid) } else { (sid, oid) };
                 let conf = r.score.min(*ss).min(*os) as f64;
                 let e = facts.entry((sid.clone(), pred.clone(), oid.clone())).or_insert(0.0);
                 if conf > *e {

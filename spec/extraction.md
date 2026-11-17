@@ -7,14 +7,17 @@ facts. `GlinerExtractor` (`src/extract/`) replaces that call with three
 deterministic stages:
 
 1. **gline-rs** runs a GLiNER multitask model (ONNX, token mode) for named
-   entities and relations. Feature `gliner`.
+   entities and relations, one sentence per call. gline-rs reports relation
+   object spans against its prompt (`"{prefix} {sentence}"`); the backend
+   maps them back to the sentence and ties subject and object to that
+   sentence's NER spans (`resolve_relations`). Feature `gliner`.
 2. **NegEx** drops relations whose object sits inside a negation scope.
 3. **glinker-rs**, the Rust port of GLinker, links each mention to a canonical
    entity id in-process. It runs `Executor::link_with_mentions`, which skips L1
    because gline-rs already found the spans. Feature `glinker`. Tests use the
    deterministic `TableLinker`.
 
-The three obligations below are what this change promises. Each one has
+The obligations below are what this change promises. Each one has
 tagged Rust tests in `tests/extraction_test.rs`. `obligations.lock` on `main`
 pins the obligations and the tests, so a later PR cannot weaken them unnoticed.
 
@@ -25,29 +28,44 @@ obligations:
   - id: SPEC-7.1-O1
     says: >
       A relation whose object is governed by a negation trigger produces no
-      fact. The trigger is either a pre-negation trigger that starts at or
-      after the subject and ends within the window before the object, or a
-      post-negation trigger within the window after the object, with no
-      termination term in between. The relation is reported in rejected()
-      with reason Negated. Pseudo-triggers ("not only", "no doubt") and
-      triggers cut off by a termination term ("but", ";", ".") do not negate.
+      fact and is reported in rejected() with reason Negated. A trigger is a
+      pre-negation trigger (including cessation words such as "left",
+      "resigned", "former" and contractions typed without the apostrophe)
+      that starts at or after the subject and ends within the window before
+      the object; a post-negation trigger within the window after the
+      object; or a sentential trigger ("it's not true that") anywhere before
+      the object. A termination term ("but", ";", ".") between trigger and
+      object ends its scope, and so does another entity mention between them
+      unless it is coordinated with the object ("Acme, Initech or Globex").
+      A pre-negation trigger inside a comma-enclosed aside after the subject
+      ("Bob, who has no car, works at Acme") does not govern the object.
+      Pseudo-triggers do not negate: phrases such as "not only" and
+      "no doubt", negated-positive idioms ("doesn't mind", "didn't
+      hesitate") and double negatives ("never stopped", "hasn't left").
+      On the labelled sets tests/negex_tuning.tsv and tests/negex_heldout.tsv
+      NegEx keeps MCC at or above 0.90 and 0.85.
     kind: property
     risk: high
     scope:
       - src/extract/negex.rs::negated
+      - src/extract/negex.rs::negated_with
       - src/extract/pipeline.rs::run
   - id: SPEC-7.1-O2
     says: >
       Every emitted fact's subject and object are canonical ids returned by the
       EntityLinker for that mention, never the raw mention text. A relation
       with a mention that does not link produces no fact and is reported with
-      reason Unlinked. First-person mentions (I, me, my) are linked as the
-      episode's speaker.
+      reason Unlinked. A relation the model reports whose subject or object
+      is not a mention of its sentence produces no fact and is reported with
+      reason Unresolved. First-person mentions (I, me, my, myself), as
+      subject or object, are linked as the episode's speaker.
     kind: contract
     risk: high
     scope:
       - src/extract/pipeline.rs::run
+      - src/extract/pipeline.rs::resolve_relations
       - src/extract/link.rs
+      - src/extract/gline.rs
   - id: SPEC-7.1-O3
     says: >
       Extraction is deterministic and memoized, and calls no LLM. The backend
@@ -61,13 +79,45 @@ obligations:
       - src/extract/pipeline.rs::extract
       - src/extract/mod.rs
       - src/extract/gline.rs
+  - id: SPEC-7.1-O4
+    says: >
+      Facts follow lemmalog's predicate direction. X --manager--> Y means X
+      reports to Y: "reports to" relations keep their direction and "manager
+      of" relations are inverted, so "Dana is the manager of Bob" and "Bob
+      reports to Dana" both give person:bob --manager--> person:dana.
+    kind: contract
+    risk: high
+    scope:
+      - src/extract/pipeline.rs::DEFAULT_RELATIONS
+      - src/extract/pipeline.rs::run
+  - id: SPEC-7.1-O5
+    says: >
+      Negation and linking only ever see mention spans that are valid byte
+      ranges of their own sentence. A relation with any other span produces
+      no fact and is reported with reason BadSpan; no span makes extraction
+      panic. Sentences are not split inside numbers ("2.5"), after titles
+      ("Dr."), or after abbreviations and initials ("Corp.", "U.S.") followed
+      by a lower-case word, nor at an ellipsis followed by one.
+    kind: property
+    risk: high
+    scope:
+      - src/extract/pipeline.rs::run
+      - src/extract/pipeline.rs::split_sentences
+      - src/extract/gline.rs::map_relations
+      - src/extract/link.rs::GlinkerLinker
 ```
 
 ## 7.2 Out of scope
 
 - Coreference beyond first-person pronouns ("she", "the company").
-- Temporal negation ("used to work at"). This is a supersession, so it belongs
-  to the bi-temporal layer rather than to extraction.
+- Temporal negation ("used to work at") and recording when a relation ended.
+  Cessation words ("left Acme", "former") only stop the stale fact from being
+  asserted; the end time is a supersession, so it belongs to the bi-temporal
+  layer rather than to extraction.
+- Coreference for "we", "our" and other plural first-person forms.
 - Accuracy targets for the ONNX models and the entity database. Measure those
-  with MCC on a labelled set (glinker-rs `glinker eval` reports MCC for
-  linking). They are not pass/fail checks for this gate.
+  with MCC on a labelled set: `examples/extraction_eval.rs` over
+  `benchmarks/extraction_gold.tsv` scores the whole pipeline, once with the
+  gold alias table (GLiNER + NegEx alone) and once with glinker-rs, and
+  `notebooks/extraction_eval.ipynb` runs it in Colab with the real models.
+  They are not pass/fail checks for this gate.

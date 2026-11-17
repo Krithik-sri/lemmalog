@@ -3,6 +3,7 @@
 //!
 //! See `spec/extraction.md` for the obligations this module must meet.
 
+pub mod eval;
 pub mod link;
 pub mod negex;
 pub mod pipeline;
@@ -14,6 +15,6 @@ pub use link::{EntityLinker, Link, TableLinker};
 pub use link::GlinkerLinker;
 pub use negex::NegEx;
 pub use pipeline::{
-    FixtureBackend, GlinerExtractor, Mention, RawRelation, RejectReason, Rejection,
-    RelationBackend, SentenceAnalysis, DEFAULT_RELATIONS,
+    resolve_relations, split_sentences, FixtureBackend, GlinerExtractor, Mention, ModelRelation,
+    RawRelation, RejectReason, Rejection, RelationBackend, SentenceAnalysis, DEFAULT_RELATIONS,
 };

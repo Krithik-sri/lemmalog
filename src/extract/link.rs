@@ -140,8 +140,10 @@ impl EntityLinker for GlinkerLinker {
                     label: Some(m.label.clone()),
                     start: s,
                     end: e,
-                    left_context: sentence[..m.start].to_string(),
-                    right_context: sentence[m.end..].to_string(),
+                    // never panic on a bad span: the pipeline rejects those
+                    // first, but the linker is public
+                    left_context: sentence.get(..m.start).unwrap_or("").to_string(),
+                    right_context: sentence.get(m.end..).unwrap_or("").to_string(),
                 }
             })
             .collect();

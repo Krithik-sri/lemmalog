@@ -1,0 +1,41 @@
+# NegEx tuning cases (the set the rules were tuned on). sentence<TAB>subject<TAB>object<TAB>gold(1=negated)<TAB>other NER mentions (|-separated, optional)
+Bob doesn't work at Acme.	Bob	Acme	1
+Bob no longer works at Acme.	Bob	Acme	1
+Bob never worked at Acme.	Bob	Acme	1
+Bob isn't at Acme anymore.	Bob	Acme	1
+Bob does not like sushi.	Bob	sushi	1
+Bob has not been working at Acme for a while.	Bob	Acme	1
+Bob is not a member of the chess club.	Bob	chess club	1
+Bob stopped liking sushi.	Bob	sushi	1
+Bob won't be joining Acme.	Bob	Acme	1
+Bob works at Acme, not Initech.	Bob	Initech	1	Acme
+Dana says Bob doesn't work at Acme.	Bob	Acme	1	Dana
+Bob never really liked sushi.	Bob	sushi	1
+Bob is no longer the CTO.	Bob	CTO	1
+Bob doesn't live in Paris anymore.	Bob	Paris	1
+Bob doesnt work at Acme.	Bob	Acme	1
+Bob left Acme last year.	Bob	Acme	1
+Bob resigned from Acme.	Bob	Acme	1
+Bob is a former Acme engineer.	Bob	Acme	1
+Bob was laid off by Acme.	Bob	Acme	1
+It's not true that Bob works at Acme.	Bob	Acme	1
+Bob does not, as far as I know, still work at Acme.	Bob	Acme	1
+Bob works at Acme.	Bob	Acme	0
+Bob not only works at Acme, he runs it.	Bob	Acme	0
+Bob left Initech but works at Acme.	Bob	Acme	0	Initech
+No doubt Bob works at Acme.	Bob	Acme	0
+Bob still works at Acme.	Bob	Acme	0
+Bob works at Acme and doesn't like Initech.	Bob	Acme	0	Initech
+Bob no longer works at Initech; he works at Acme now.	Bob	Acme	0	Initech
+Bob joined Acme without any fuss.	Bob	Acme	0
+Bob quit Initech to join Acme.	Bob	Acme	0	Initech
+Bob hasn't left Acme.	Bob	Acme	0
+Bob never misses a day at Acme.	Bob	Acme	0
+Bob couldn't be happier at Acme.	Bob	Acme	0
+Bob doesn't just work at Acme, he owns it.	Bob	Acme	0
+Bob can't stop talking about sushi.	Bob	sushi	0
+Bob didn't hesitate to join Acme.	Bob	Acme	0
+Bob, who has no car, works at Acme.	Bob	Acme	0
+Bob never stopped working at Acme.	Bob	Acme	0
+Bob, not Dana, works at Acme.	Bob	Acme	0	Dana
+Bob doesn't mind working at Acme.	Bob	Acme	0
