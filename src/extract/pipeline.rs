@@ -117,6 +117,41 @@ impl<B: RelationBackend + ?Sized> RelationBackend for &mut B {
     }
 }
 
+/// Remembers each sentence's analysis, so re-running extraction over the
+/// same text (a threshold sweep, a second linker) calls the model once.
+pub struct CachedBackend<B: RelationBackend> {
+    pub inner: B,
+    cache: HashMap<String, SentenceAnalysis>,
+    /// Sentences sent to `inner`.
+    pub misses: usize,
+}
+
+impl<B: RelationBackend> CachedBackend<B> {
+    pub fn new(inner: B) -> Self {
+        CachedBackend { inner, cache: HashMap::new(), misses: 0 }
+    }
+}
+
+impl<B: RelationBackend> RelationBackend for CachedBackend<B> {
+    fn analyse(&mut self, sentences: &[String]) -> Result<Vec<SentenceAnalysis>, String> {
+        let mut todo: Vec<String> = Vec::new();
+        for s in sentences {
+            if !self.cache.contains_key(s) && !todo.contains(s) {
+                todo.push(s.clone());
+            }
+        }
+        if !todo.is_empty() {
+            let got = self.inner.analyse(&todo)?;
+            if got.len() != todo.len() {
+                return Err("backend returned the wrong number of analyses".into());
+            }
+            self.misses += todo.len();
+            self.cache.extend(todo.into_iter().zip(got));
+        }
+        Ok(sentences.iter().map(|s| self.cache[s].clone()).collect())
+    }
+}
+
 /// Why a raw relation did not become a fact.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RejectReason {
@@ -130,6 +165,9 @@ pub enum RejectReason {
     Unresolved,
     /// A mention span is not a valid byte range of its sentence.
     BadSpan,
+    /// The same sentence gave this fact in the other direction with stronger
+    /// evidence (see SPEC-7.1-O4).
+    Reversed,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -255,6 +293,25 @@ pub fn split_sentences(text: &str) -> Vec<String> {
     out
 }
 
+/// Drop a leading title ("Dr. Smith" -> "Smith", "Mrs Lee" -> "Lee") from
+/// a mention before linking, keeping the span on the remaining name. A
+/// mention that is only a title is returned unchanged.
+pub fn strip_title(sentence: &str, m: &Mention) -> Mention {
+    let text = sentence.get(m.start..m.end).unwrap_or(&m.text);
+    let word: String = text.chars().take_while(|c| c.is_alphabetic()).collect();
+    if word.is_empty() || !TITLES.contains(&word.to_lowercase().as_str()) {
+        return m.clone();
+    }
+    let rest = &text[word.len()..];
+    let rest_trim = rest.trim_start_matches('.').trim_start();
+    if rest_trim.is_empty() || rest_trim.len() == rest.len() {
+        // nothing after the title, or no separator ("Drake"): not a title
+        return m.clone();
+    }
+    let cut = text.len() - rest_trim.len();
+    Mention { text: rest_trim.to_string(), start: m.start + cut, ..m.clone() }
+}
+
 pub struct GlinerExtractor<B: RelationBackend, L: EntityLinker> {
     backend: B,
     linker: L,
@@ -305,16 +362,27 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
         });
     }
 
-    /// First-person mentions ("I", "me", "my", "myself") stand for the
-    /// speaker, as subject or object.
-    fn resolve_speaker(m: &Mention, ep: &Episode) -> Mention {
-        let lower = m.text.to_lowercase();
-        match &ep.speaker {
-            Some(s) if matches!(lower.as_str(), "i" | "me" | "my" | "myself") => {
-                Mention { text: s.clone(), ..m.clone() }
-            }
-            _ => m.clone(),
+    /// Is this mention a first-person pronoun ("I", "me", "my", "myself")?
+    fn first_person(m: &Mention) -> bool {
+        matches!(m.text.to_lowercase().as_str(), "i" | "me" | "my" | "myself")
+    }
+
+    /// Link the episode's speaker by name, once per episode: the name with
+    /// no sentence context, so a span-scoring linker scores "Dana", not the
+    /// word "I" it stands for.
+    fn speaker_link(&mut self, ep: &Episode, cache: &mut Option<Link>) -> Link {
+        if let Some(l) = cache {
+            return l.clone();
         }
+        let l = match &ep.speaker {
+            Some(name) => {
+                let m = Mention { text: name.clone(), label: "person".into(), start: 0, end: name.len(), score: 1.0 };
+                self.linker.link(name, &[m]).into_iter().next().unwrap_or(Link::Unlinked)
+            }
+            None => Link::Unlinked,
+        };
+        *cache = Some(l.clone());
+        l
     }
 
     fn run(&mut self, ep: &Episode) -> Vec<CandidateFact> {
@@ -331,6 +399,7 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
         };
         // (subj, pred, obj) -> best confidence; BTreeMap keeps output order stable
         let mut facts: BTreeMap<(String, String, String), f64> = BTreeMap::new();
+        let mut speaker: Option<Link> = None;
         for (sentence, a) in sentences.iter().zip(analyses) {
             for (subject, relation, object) in &a.unresolved {
                 self.rejected.push(Rejection {
@@ -380,11 +449,27 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
             if kept.is_empty() {
                 continue;
             }
-            let mentions: Vec<Mention> = kept
-                .iter()
-                .flat_map(|(r, _, _)| [Self::resolve_speaker(&r.subject, ep), Self::resolve_speaker(&r.object, ep)])
-                .collect();
-            let links = self.linker.link(sentence, &mentions);
+            // first-person mentions link as the speaker (by name); the rest go
+            // to the linker in one call, titles stripped ("Dr. Smith" -> "Smith")
+            let all: Vec<&Mention> = kept.iter().flat_map(|(r, _, _)| [&r.subject, &r.object]).collect();
+            let mut links: Vec<Link> = vec![Link::Unlinked; all.len()];
+            let mut ask: Vec<(usize, Mention)> = Vec::new();
+            for (i, m) in all.iter().enumerate() {
+                if Self::first_person(m) {
+                    links[i] = self.speaker_link(ep, &mut speaker);
+                } else {
+                    ask.push((i, strip_title(sentence, m)));
+                }
+            }
+            if !ask.is_empty() {
+                let ms: Vec<Mention> = ask.iter().map(|(_, m)| m.clone()).collect();
+                for ((i, _), l) in ask.iter().zip(self.linker.link(sentence, &ms)) {
+                    links[*i] = l;
+                }
+            }
+            // this sentence's facts: triple -> (cue, confidence, relation)
+            let mut found: BTreeMap<(String, String, String), (bool, f64, RawRelation)> = BTreeMap::new();
+            let lower = sentence.to_lowercase();
             for (i, (r, pred, inverse)) in kept.iter().enumerate() {
                 let (s, o) = (links.get(2 * i), links.get(2 * i + 1));
                 let (Some(Link::Canonical { id: sid, score: ss }), Some(Link::Canonical { id: oid, score: os })) = (s, o) else {
@@ -401,7 +486,39 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
                 }
                 let (sid, oid) = if *inverse { (oid, sid) } else { (sid, oid) };
                 let conf = r.score.min(*ss).min(*os) as f64;
-                let e = facts.entry((sid.clone(), pred.clone(), oid.clone())).or_insert(0.0);
+                // the relation's own wording ("reports to", "manager of") in
+                // the sentence is the strongest evidence for its direction
+                let cue = lower.contains(&r.label.to_lowercase());
+                let key = (sid.clone(), pred.clone(), oid.clone());
+                let better = match found.get(&key) {
+                    Some((c, f, _)) => (cue, conf) > (*c, *f),
+                    None => true,
+                };
+                if better {
+                    found.insert(key, (cue, conf, r.clone()));
+                }
+            }
+            // one sentence never asserts a fact in both directions: keep the
+            // one with the cue, then the higher confidence, then the smaller
+            // triple (a strict order, so exactly one survives)
+            let losers: Vec<(String, String, String)> = found
+                .iter()
+                .filter(|((a, p, b), (c, f, _))| {
+                    a != b
+                        && found.get(&(b.clone(), p.clone(), a.clone())).map_or(false, |(c2, f2, _)| {
+                            let me = (*c, *f);
+                            let other = (*c2, *f2);
+                            me < other || (me == other && (a, b) > (b, a))
+                        })
+                })
+                .map(|(k, _)| k.clone())
+                .collect();
+            for k in &losers {
+                let (_, _, r) = found.remove(k).unwrap();
+                self.reject(ep, &r, RejectReason::Reversed);
+            }
+            for ((subj, pred, obj), (_, conf, _)) in found {
+                let e = facts.entry((subj, pred, obj)).or_insert(0.0);
                 if conf > *e {
                     *e = conf;
                 }

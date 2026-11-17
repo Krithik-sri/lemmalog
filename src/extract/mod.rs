@@ -10,11 +10,11 @@ pub mod pipeline;
 #[cfg(feature = "gliner")]
 pub mod gline;
 
-pub use link::{EntityLinker, Link, TableLinker};
+pub use link::{CascadeLinker, EntityLinker, Link, TableLinker};
 #[cfg(feature = "glinker")]
 pub use link::GlinkerLinker;
 pub use negex::NegEx;
 pub use pipeline::{
-    resolve_relations, split_sentences, FixtureBackend, GlinerExtractor, Mention, ModelRelation,
+    resolve_relations, split_sentences, strip_title, CachedBackend, FixtureBackend, GlinerExtractor, Mention, ModelRelation,
     RawRelation, RejectReason, Rejection, RelationBackend, SentenceAnalysis, DEFAULT_RELATIONS,
 };

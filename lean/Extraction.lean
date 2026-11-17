@@ -8,6 +8,7 @@
   * `DEFAULT_RELATIONS` `inverse` + swap in `run`      ↔ `orient`, theorems `manager_of_is_reports_to`, `orient_involutive`
   * `pipeline::resolve_relations` pair search          ↔ `pairs`, theorem `resolved_subject_ne_object`
   * `eval::score` counting                             ↔ `countTp`/`countFn`, theorem `tp_add_fn_eq_positives`
+  * `pipeline::run` direction rule (Reversed)          ↔ `keepOneDirection`, theorem `never_both_directions`
 
   Strings are modelled as lists (of bytes or chars); a Rust slice `s[a..b]` is
   `(s.drop a).take (b - a)`.
@@ -113,3 +114,39 @@ theorem tp_add_fn_eq_positives {τ} (got : τ → Bool) (pos : List τ) :
   | cons t ts ih =>
     unfold countTp countFn at *
     cases h : got t <;> simp [List.filter_cons, h] <;> omega
+
+/-! ### 6. One sentence never asserts a fact in both directions
+
+`run` drops a fact `f` when its reverse `rev f` was found in the same sentence
+with a larger key (cue, confidence, then the triple itself). Because the key
+ends with the triple, it is injective, so of `f` and `rev f` exactly one has the
+larger key and at most one survives. -/
+
+section Direction
+variable {φ : Type} [DecidableEq φ] (rev : φ → φ) (key : φ → Nat)
+
+def keepOneDirection (found : List φ) : List φ :=
+  found.filter fun f => !(decide (rev f ∈ found) && decide (key f < key (rev f)))
+
+theorem never_both_directions (found : List φ) (f : φ)
+    (hrev : ∀ x, rev (rev x) = x) (hinj : ∀ x y, key x = key y → x = y)
+    (h1 : f ∈ keepOneDirection rev key found) (h2 : rev f ∈ keepOneDirection rev key found) :
+    rev f = f := by
+  unfold keepOneDirection at h1 h2
+  have m1 := List.mem_filter.mp h1
+  have m2 := List.mem_filter.mp h2
+  have inF : f ∈ found := m1.1
+  have inR : rev f ∈ found := m2.1
+  have k1 : ¬ key f < key (rev f) := by
+    intro hlt; have := m1.2; simp [inR, hlt] at this
+  have k2 : ¬ key (rev f) < key f := by
+    intro hlt; have := m2.2; rw [hrev] at this; simp [inF, hlt] at this
+  exact hinj _ _ (Nat.le_antisymm (Nat.not_lt.mp k1) (Nat.not_lt.mp k2))
+
+/-- Facts whose reverse was not found are never dropped. -/
+theorem unopposed_facts_kept (found : List φ) (f : φ) (hf : f ∈ found) (hn : rev f ∉ found) :
+    f ∈ keepOneDirection rev key found := by
+  unfold keepOneDirection
+  exact List.mem_filter.mpr ⟨hf, by simp [hn]⟩
+
+end Direction
