@@ -1,0 +1,93 @@
+# Gold set for LLM-free extraction (GLiNER + NegEx + linking).
+#   @	entity id	GLiNER label	alias|alias	-- entity table (also the glinker-rs entity DB)
+#   ep	episode id	speaker	text
+#   +	subject id	predicate	object id	-- must be extracted from the episode above
+#   -	subject id	predicate	object id	-- must NOT be extracted (negated, stale, reversed)
+# Any extracted triple not listed counts as a false positive.
+@	person:bob	person	Bob|Bob Smith|Smith
+@	person:dana	person	Dana|Dana Lee
+@	person:priya	person	Priya|Priya Raman
+@	person:sam	person	Sam|Sam Ortiz
+@	org:acme	organization	Acme|Acme Corp|Acme Corp.
+@	org:initech	organization	Initech
+@	org:globex	organization	Globex|Globex Inc.
+@	loc:chennai	location	Chennai
+@	loc:berlin	location	Berlin
+@	loc:austin	location	Austin
+@	team:chess	team	chess club|the chess club
+@	team:platform	team	platform team|the platform team
+@	title:cto	job title	CTO
+@	title:data-engineer	job title	data engineer
+@	thing:sushi	food	sushi
+@	thing:jazz	thing	jazz
+@	thing:hiking	activity	hiking
+ep	e01	Dana	Bob Smith works at Acme Corp.
++	person:bob	works_at	org:acme
+ep	e02	Dana	Bob doesn't work at Initech anymore.
+-	person:bob	works_at	org:initech
+ep	e03	Dana	I work at Globex.
++	person:dana	works_at	org:globex
+ep	e04	Dana	Priya is the CTO of Acme.
++	person:priya	job_title	title:cto
++	person:priya	works_at	org:acme
+ep	e05	Dana	Sam reports to Priya.
++	person:sam	manager	person:priya
+-	person:priya	manager	person:sam
+ep	e06	Dana	Priya is the manager of Sam.
++	person:sam	manager	person:priya
+-	person:priya	manager	person:sam
+ep	e07	Dana	Bob left Initech last year and joined Acme.
++	person:bob	works_at	org:acme
+-	person:bob	works_at	org:initech
+ep	e08	Dana	Sam quit Globex to join Initech.
++	person:sam	works_at	org:initech
+-	person:sam	works_at	org:globex
+ep	e09	Dana	Priya lives in Chennai.
++	person:priya	located_in	loc:chennai
+ep	e10	Dana	Sam doesn't live in Berlin anymore; he lives in Austin now.
++	person:sam	located_in	loc:austin
+-	person:sam	located_in	loc:berlin
+ep	e11	Dana	Bob loves sushi.
++	person:bob	likes	thing:sushi
+ep	e12	Dana	Priya doesn't like jazz.
+-	person:priya	likes	thing:jazz
+ep	e13	Dana	Sam never stopped going hiking.
++	person:sam	likes	thing:hiking
+ep	e14	Dana	Bob is a member of the chess club.
++	person:bob	member_of	team:chess
+ep	e15	Dana	Priya is no longer a member of the chess club.
+-	person:priya	member_of	team:chess
+ep	e16	Dana	Dr. Smith works at Acme Corp. in Austin.
++	person:bob	works_at	org:acme
+ep	e17	Dana	Sam, who has no car, works at Globex.
++	person:sam	works_at	org:globex
+ep	e18	Dana	It's not true that Priya works at Initech.
+-	person:priya	works_at	org:initech
+ep	e19	Dana	Bob hasn't left Acme.
++	person:bob	works_at	org:acme
+ep	e20	Dana	Sam is a data engineer on the platform team.
++	person:sam	job_title	title:data-engineer
++	person:sam	member_of	team:platform
+ep	e21	Dana	Priya reports to me.
++	person:priya	manager	person:dana
+ep	e22	Dana	Bob doesnt work at Globex.
+-	person:bob	works_at	org:globex
+ep	e23	Dana	Sam is a former Acme engineer who now works at Initech.
++	person:sam	works_at	org:initech
+-	person:sam	works_at	org:acme
+ep	e24	Dana	Priya doesn't mind working at Globex.
++	person:priya	works_at	org:globex
+ep	e25	Dana	Acme is located in Berlin.
++	org:acme	located_in	loc:berlin
+ep	e26	Dana	Bob works at Acme, not Globex.
++	person:bob	works_at	org:acme
+-	person:bob	works_at	org:globex
+ep	e27	Dana	I moved to Chennai last year. I like hiking.
++	person:dana	located_in	loc:chennai
++	person:dana	likes	thing:hiking
+ep	e28	Dana	Sam resigned from Initech.
+-	person:sam	works_at	org:initech
+ep	e29	Dana	Priya Raman joined Globex Inc. in May.
++	person:priya	works_at	org:globex
+ep	e30	Dana	Bob doesn't just work at Acme, he runs the platform team.
++	person:bob	works_at	org:acme

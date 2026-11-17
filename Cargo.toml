@@ -33,6 +33,10 @@ name = "gliner_memory"
 required-features = ["gliner", "glinker"]
 
 [[example]]
+name = "extraction_eval"
+required-features = ["gliner", "glinker"]
+
+[[example]]
 name = "lmstudio"
 required-features = ["llm"]
 
