@@ -4,7 +4,7 @@
 //! `benchmarks/extraction_gold.tsv`:
 //!
 //! ```text
-//! @   entity id   GLiNER label   alias|alias     entity table
+//! @   entity id   GLiNER label   alias|alias  [description]   entity table
 //! ep  episode id  speaker        text            an episode
 //! +   subject     predicate      object          must be extracted
 //! -   subject     predicate      object          must not be extracted
@@ -24,6 +24,9 @@ pub struct GoldEntity {
     pub id: String,
     pub label: String,
     pub aliases: Vec<String>,
+    /// Optional free-text description (the 5th column), for entity
+    /// databases of linkers that score "{label}: {description}".
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -49,10 +52,11 @@ impl Gold {
             let f: Vec<&str> = line.split('\t').collect();
             let err = || format!("line {}: {line:?}", n + 1);
             match f.as_slice() {
-                ["@", id, label, aliases] => g.entities.push(GoldEntity {
+                ["@", id, label, aliases, rest @ ..] if rest.len() <= 1 => g.entities.push(GoldEntity {
                     id: id.to_string(),
                     label: label.to_string(),
                     aliases: aliases.split('|').map(str::to_string).collect(),
+                    description: rest.first().filter(|d| !d.trim().is_empty()).map(|d| d.to_string()),
                 }),
                 ["ep", id, speaker, text] => g.episodes.push(GoldEpisode {
                     episode: Episode {
@@ -181,5 +185,13 @@ mod tests {
     fn bad_lines_are_errors() {
         assert!(Gold::parse("+\ta\tb\tc\n").is_err()); // triple before any episode
         assert!(Gold::parse("ep\tonly-two\n").is_err());
+        assert!(Gold::parse("@\ta\tb\tc\td\te\n").is_err()); // too many entity columns
+    }
+
+    #[test]
+    fn entity_descriptions_are_optional() {
+        let g = Gold::parse("@\tx:a\tperson\tA\n@\tx:b\tperson\tB|Bee\thuman; a person named B\n").unwrap();
+        assert_eq!(g.entities[0].description, None);
+        assert_eq!(g.entities[1].description.as_deref(), Some("human; a person named B"));
     }
 }

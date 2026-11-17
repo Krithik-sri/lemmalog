@@ -118,7 +118,8 @@ theorem tp_add_fn_eq_positives {τ} (got : τ → Bool) (pos : List τ) :
 /-! ### 6. One sentence never asserts a fact in both directions
 
 `run` drops a fact `f` when its reverse `rev f` was found in the same sentence
-with a larger key (cue, confidence, then the triple itself). Because the key
+with a larger key (label written between subject and object, then relation
+score, then the triple itself; link scores are not part of the key). Because the key
 ends with the triple, it is injective, so of `f` and `rev f` exactly one has the
 larger key and at most one survives. -/
 

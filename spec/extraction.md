@@ -92,9 +92,11 @@ obligations:
       of" relations are inverted, so "Dana is the manager of Bob" and "Bob
       reports to Dana" both give person:bob --manager--> person:dana. One
       sentence never yields a fact in both directions: when it would, the
-      fact whose relation label appears in the sentence wins, then the one
-      with higher confidence, then the smaller triple; the other is reported
-      with reason Reversed. Facts from different sentences are not compared.
+      fact whose relation label is written between its subject and its
+      object ("Sam reports to Priya") wins, then the one with the higher
+      relation score, then the smaller triple; the other is reported with
+      reason Reversed. Link scores never decide the direction. Facts from
+      different sentences are not compared.
     kind: contract
     risk: high
     scope:

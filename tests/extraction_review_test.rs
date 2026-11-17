@@ -216,3 +216,11 @@ fn gold_set_parses_and_uses_known_ids() {
         }
     }
 }
+
+#[test]
+fn gold_entities_all_have_descriptions() {
+    use lemmalog::extract::eval::Gold;
+    let text = std::fs::read_to_string(format!("{}/benchmarks/extraction_gold.tsv", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let g = Gold::parse(&text).unwrap();
+    assert!(g.entities.iter().all(|e| e.description.is_some()));
+}
