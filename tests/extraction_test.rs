@@ -329,8 +329,10 @@ fn window_counts_tokens_around_the_exact_object_span() {
     assert!(!negd(&n, "Bob doesn't aa bb cc dd ee ff \"Acme", "Bob", "Acme"));
     // an object span that starts with punctuation begins at that punctuation
     assert!(negd(&n, "Bob doesn't aa bb cc dd ee ff (Acme)", "Bob", "(Acme)"));
-    // a comma right after the object is between object and trigger: 7 tokens
-    assert!(!negd(&n, "Bob works at Acme, aa bb cc dd ee ff anymore", "Bob", "Acme"));
+    // a quote right after the object is between object and trigger: 7 tokens
+    // (not a comma: commas are list punctuation and do not count, see O1)
+    assert!(!negd(&n, "Bob works at Acme\" aa bb cc dd ee ff anymore", "Bob", "Acme"));
+    assert!(negd(&n, "Bob works at Acme, aa bb cc dd ee ff anymore", "Bob", "Acme"));
 }
 
 // obligation: SPEC-7.1-O1
