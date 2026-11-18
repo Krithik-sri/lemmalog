@@ -48,13 +48,28 @@ pub const RELATION_PROMPT_PREFIX: &str = "Extract relationships between entities
 /// gline-rs formats the prompt as `"{prefix} {text}"`.
 pub const RELATION_PROMPT_OFFSET: usize = RELATION_PROMPT_PREFIX.len() + 1;
 
+/// Extra object labels for the relaxed schema: person-to-person relations
+/// also accept an object GLiNER typed as an organization. GLiNER sometimes
+/// types a short first name that way ("Priya is the manager of Sam" tags
+/// "Sam" as an organization), and gline-rs then never offers the relation.
+pub const RELAXED_OBJECTS: &[(&str, &str)] = &[("reports to", "organization"), ("manager of", "organization")];
+
+/// Does any span's class appear as an allowed subject in the schema? If
+/// not, gline-rs would build no relation labels and refuse the input.
+pub fn has_subject_candidate(schema: &RelationSchema, classes: &[&str]) -> bool {
+    schema.relations().values().any(|spec| classes.iter().any(|c| spec.allows_subject(c)))
+}
+
 pub struct GlineBackend {
-    // The relation pipeline borrows its schema and `Model::inference` ties the
-    // pipeline lifetime to the model borrow, so both live for the process.
-    // A backend is built once per process; this leaks one model, on purpose.
+    // The relation pipelines borrow their schemas and `Model::inference` ties
+    // the pipeline lifetime to the model borrow, so both live for the
+    // process. A backend is built once per process; this leaks one model, on
+    // purpose.
     model: &'static Model,
     ner: Ner,
     rel: Rel,
+    schema: &'static RelationSchema,
+    relaxed: Option<(Rel, &'static RelationSchema)>,
     params: Parameters,
     labels: Vec<String>,
     /// At most this many entity spans (highest score first) per sentence go
@@ -63,18 +78,36 @@ pub struct GlineBackend {
     /// Add "I"/"me"/"myself" as `person` spans when NER missed them, so
     /// first-person relations reach the speaker. Default true.
     pub first_person: bool,
+    /// Use the relaxed schema ([`RELAXED_OBJECTS`]) for relation extraction.
+    /// Off by default: it can let a real organization be a person's
+    /// manager. Only [`GlineBackend::new`] builds a relaxed schema.
+    pub relaxed_objects: bool,
     /// Entity spans dropped by `max_entities` so far.
     pub truncated: usize,
+    /// Sentences whose relation step was skipped because no entity could be
+    /// a subject (their mentions are still returned).
+    pub no_subject: usize,
+}
+
+fn schema_from(relax: &[(&str, &str)]) -> RelationSchema {
+    let mut schema = RelationSchema::new();
+    for (label, _, subj, obj, _) in DEFAULT_RELATIONS {
+        let mut objs: Vec<&str> = obj.to_vec();
+        objs.extend(relax.iter().filter(|(l, _)| l == label).map(|(_, o)| *o));
+        schema.push_with_allowed_labels(label, subj, &objs);
+    }
+    schema
 }
 
 impl GlineBackend {
-    /// Load the model with the default relation set (see [`DEFAULT_RELATIONS`]).
+    /// Load the model with the default relation set (see [`DEFAULT_RELATIONS`]),
+    /// plus its relaxed variant (see [`GlineBackend::relaxed_objects`]).
     pub fn new(tokenizer_path: &str, model_path: &str) -> Result<Self, String> {
-        let mut schema = RelationSchema::new();
-        for (label, _, subj, obj, _) in DEFAULT_RELATIONS {
-            schema.push_with_allowed_labels(label, subj, obj);
-        }
-        Self::with_schema(tokenizer_path, model_path, default_entity_labels(), schema)
+        let mut b = Self::with_schema(tokenizer_path, model_path, default_entity_labels(), schema_from(&[]))?;
+        let relaxed: &'static RelationSchema = Box::leak(Box::new(schema_from(RELAXED_OBJECTS)));
+        let rel = RelationPipeline::default(tokenizer_path, relaxed).map_err(|x| x.to_string())?;
+        b.relaxed = Some((rel, relaxed));
+        Ok(b)
     }
 
     pub fn with_schema(
@@ -91,11 +124,15 @@ impl GlineBackend {
             model,
             ner: TokenPipeline::new(tokenizer_path).map_err(e)?,
             rel: RelationPipeline::default(tokenizer_path, schema).map_err(e)?,
+            schema,
+            relaxed: None,
             params: Parameters::default(),
             labels,
             max_entities: 12,
             first_person: true,
+            relaxed_objects: false,
             truncated: 0,
+            no_subject: 0,
         })
     }
 
@@ -105,9 +142,11 @@ impl GlineBackend {
     }
 
     fn analyse_one(&mut self, sentence: &str) -> Result<SentenceAnalysis, String> {
-        let e = |x: Box<dyn std::error::Error + Send + Sync>| x.to_string();
-        let input = TextInput::new(vec![sentence.to_string()], self.labels.clone()).map_err(e)?;
-        let out: SpanOutput = self.model.inference(input, &self.ner, &self.params).map_err(e)?;
+        let e = |stage: &'static str| {
+            move |x: Box<dyn std::error::Error + Send + Sync>| format!("{stage} failed on {sentence:?}: {x}")
+        };
+        let input = TextInput::new(vec![sentence.to_string()], self.labels.clone()).map_err(e("NER input"))?;
+        let out: SpanOutput = self.model.inference(input, &self.ner, &self.params).map_err(e("NER"))?;
         let mut spans: Vec<Span> = out.spans.into_iter().next().unwrap_or_default();
         if self.first_person && self.labels.iter().any(|l| l == "person") {
             spans.extend(first_person_spans(sentence, &spans));
@@ -119,8 +158,18 @@ impl GlineBackend {
         }
         spans.sort_by_key(|s| s.offsets());
         let mentions: Vec<Mention> = spans.iter().map(mention).collect();
+        let (rel, schema) = match (&self.relaxed, self.relaxed_objects) {
+            (Some((r, s)), true) => (r, *s),
+            _ => (&self.rel, self.schema),
+        };
+        let classes: Vec<&str> = spans.iter().map(|s| s.class()).collect();
+        if !has_subject_candidate(schema, &classes) {
+            // gline-rs would build no relation labels and reject the input
+            self.no_subject += 1;
+            return Ok(SentenceAnalysis { mentions, ..Default::default() });
+        }
         let again = SpanOutput::new(vec![sentence.to_string()], out.entities, vec![spans]);
-        let rels = self.model.inference(again, &self.rel, &self.params).map_err(e)?;
+        let rels = self.model.inference(again, rel, &self.params).map_err(e("relation extraction"))?;
         let rels: Vec<Relation> = rels.relations.into_iter().flatten().collect();
         Ok(map_relations(sentence, mentions, &rels))
     }
@@ -220,6 +269,27 @@ mod tests {
         let a = map_relations(s, ms(s, &[("Bob", "person"), ("Acme", "organization")]), &[rel(s, "Dana", "works at", "Acme", 0)]);
         assert!(a.relations.is_empty());
         assert_eq!(a.unresolved, vec![("Dana".into(), "works at".into(), "Acme".into())]);
+    }
+
+    #[test]
+    fn sentences_without_a_subject_candidate_are_detected() {
+        let strict = schema_from(&[]);
+        assert!(has_subject_candidate(&strict, &["organization", "location"]));
+        assert!(has_subject_candidate(&strict, &["person"]));
+        // e25 if "Acme" is not typed person/organization: nothing can be a subject
+        assert!(!has_subject_candidate(&strict, &["location", "thing"]));
+        assert!(!has_subject_candidate(&strict, &[]));
+    }
+
+    #[test]
+    fn relaxed_schema_only_widens_person_to_person_objects() {
+        let (strict, relaxed) = (schema_from(&[]), schema_from(RELAXED_OBJECTS));
+        for (label, _, _, _, _) in DEFAULT_RELATIONS {
+            let (s, r) = (&strict.relations()[*label], &relaxed.relations()[*label]);
+            let widened = RELAXED_OBJECTS.iter().any(|(l, _)| l == label);
+            assert_eq!(r.allows_object("organization") && !s.allows_object("organization"), widened, "{label}");
+            assert!(r.allows_object("person") || !s.allows_object("person"), "{label}: relaxed keeps strict objects");
+        }
     }
 
     #[test]

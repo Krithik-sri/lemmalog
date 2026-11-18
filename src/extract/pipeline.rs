@@ -131,6 +131,11 @@ impl<B: RelationBackend> CachedBackend<B> {
         CachedBackend { inner, cache: HashMap::new(), misses: 0 }
     }
 
+    /// Forget every cached analysis (after changing how `inner` analyses).
+    pub fn clear(&mut self) {
+        self.cache.clear();
+    }
+
     /// The cached model output for a sentence, if it was analysed.
     pub fn analysis(&self, sentence: &str) -> Option<&SentenceAnalysis> {
         self.cache.get(sentence)
@@ -339,6 +344,7 @@ pub struct GlinerExtractor<B: RelationBackend, L: EntityLinker> {
     rejected: Vec<Rejection>,
     calls: usize,
     failures: usize,
+    errors: Vec<(String, String)>,
 }
 
 impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
@@ -356,12 +362,19 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
             rejected: Vec::new(),
             calls: 0,
             failures: 0,
+            errors: Vec::new(),
         }
     }
 
     /// Relations the extractor saw but did not turn into facts.
     pub fn rejected(&self) -> &[Rejection] {
         &self.rejected
+    }
+
+    /// Backend failures, as (episode id, error message): each one is an
+    /// episode that yielded no facts (a degraded turn).
+    pub fn errors(&self) -> &[(String, String)] {
+        &self.errors
     }
 
     pub fn backend(&self) -> &B {
@@ -408,8 +421,15 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
         }
         let analyses = match self.backend.analyse(&sentences) {
             Ok(a) if a.len() == sentences.len() => a,
-            _ => {
+            Ok(a) => {
                 self.failures += 1;
+                let msg = format!("backend returned {} analyses for {} sentences", a.len(), sentences.len());
+                self.errors.push((ep.id.clone(), msg));
+                return Vec::new(); // degraded turn: no facts, no poison
+            }
+            Err(e) => {
+                self.failures += 1;
+                self.errors.push((ep.id.clone(), e));
                 return Vec::new(); // degraded turn: no facts, no poison
             }
         };

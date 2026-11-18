@@ -78,7 +78,11 @@ obligations:
       runs at most once per episode id, and extracting the same episode again
       returns identical facts. Output holds one fact per (subject, predicate,
       object), with the highest confidence, sorted by that triple. A backend
-      error yields no facts and counts as a failure in stats().
+      error yields no facts, counts as a failure in stats(), and keeps its
+      message, with the episode id, in errors(). The GLiNER backend skips
+      relation extraction for a sentence with no entity the schema allows as
+      a subject (gline-rs rejects an empty label list) and still returns that
+      sentence's mentions.
     kind: property
     risk: medium
     scope:
