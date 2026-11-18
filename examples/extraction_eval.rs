@@ -22,7 +22,10 @@
 //! GLiNER output, e.g. entity databases with type-only and with rich
 //! descriptions. `--entities` is the exact-alias table for the cascade runs.
 //! `--spans` prints GLiNER's raw mentions and relations for every episode
-//! that any detailed run got wrong.
+//! that any detailed run got wrong. `--relaxed-objects` re-runs GLiNER with
+//! the relaxed schema (person-to-person relations also accept an object
+//! typed organization) and scores it again, to measure what it fixes and
+//! what noise it adds.
 //! Set the pipeline's `l3.threshold` at or below the lowest sweep value:
 //! glinker-rs drops predictions under it before lemmalog sees them.
 use lemmalog::extract::eval::{score, Confusion, Gold, Miss};
@@ -41,12 +44,15 @@ fn reason(r: &RejectReason) -> String {
     }
 }
 
-fn report(name: &str, c: &Confusion, rejected: &[Rejection], detail: bool) {
+fn report(name: &str, c: &Confusion, rejected: &[Rejection], errors: &[(String, String)], detail: bool) {
     println!("\n== {name}");
     println!(
         "TP={} TN={} FP={} FN={}  precision={:.3} recall={:.3}  MCC={:.3}",
         c.tp, c.tn, c.fp, c.fn_, c.precision(), c.recall(), c.mcc()
     );
+    for (e, msg) in errors {
+        println!("  backend error {e}: {msg}");
+    }
     if !detail {
         return;
     }
@@ -69,7 +75,7 @@ fn report(name: &str, c: &Confusion, rejected: &[Rejection], detail: bool) {
 fn run<L: EntityLinker>(name: &str, backend: &mut CachedBackend<GlineBackend>, gold: &Gold, linker: L, detail: bool) -> Confusion {
     let mut x = GlinerExtractor::new(&mut *backend, linker);
     let c = score(&mut x, gold);
-    report(name, &c, x.rejected(), detail);
+    report(name, &c, x.rejected(), x.errors(), detail);
     c
 }
 
@@ -108,7 +114,8 @@ fn print_spans(backend: &CachedBackend<GlineBackend>, gold: &Gold, episodes: &BT
 fn main() -> Result<(), String> {
     let mut a: Vec<String> = std::env::args().collect();
     let spans = a.iter().any(|x| x == "--spans");
-    a.retain(|x| x != "--spans");
+    let relaxed = a.iter().any(|x| x == "--relaxed-objects");
+    a.retain(|x| x != "--spans" && x != "--relaxed-objects");
     let sweep: Vec<f32> = match take_all(&mut a, "--sweep")?.pop() {
         Some(list) => list.split(',').map(|v| v.trim().parse::<f32>().map_err(|e| format!("--sweep {v}: {e}"))).collect::<Result<_, _>>()?,
         None => vec![0.5],
@@ -174,6 +181,27 @@ fn main() -> Result<(), String> {
     if spans {
         print_spans(&backend, &gold, &wrong);
     }
-    println!("\nGLiNER sentences analysed: {}; entity spans dropped by max_entities: {}", backend.misses, backend.inner.truncated);
+    if relaxed {
+        // same model, relaxed schema: score the gold-table run and each
+        // pipeline at the last threshold again on fresh GLiNER output
+        backend.inner.relaxed_objects = true;
+        backend.clear();
+        let mut wrong_relaxed = BTreeSet::new();
+        let c = run("RELAXED gold alias table (GLiNER + NegEx only)", &mut backend, &gold, gold.table_linker(), true);
+        note(&c, &mut wrong_relaxed);
+        for (pname, cfg) in &pipelines {
+            let mut glinker = GlinkerLinker::from_config_file(cfg)?;
+            glinker.min_confidence = *sweep.last().unwrap();
+            let name = format!("RELAXED {pname} @ {:.2}", glinker.min_confidence);
+            run(&name, &mut backend, &gold, &mut glinker, false);
+        }
+        if spans {
+            print_spans(&backend, &gold, &wrong_relaxed);
+        }
+    }
+    println!(
+        "\nGLiNER sentences analysed: {}; entity spans dropped by max_entities: {}; relation step skipped (no subject candidate): {}",
+        backend.misses, backend.inner.truncated, backend.inner.no_subject
+    );
     Ok(())
 }

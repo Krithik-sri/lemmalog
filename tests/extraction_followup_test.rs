@@ -299,3 +299,24 @@ fn worded_between_needs_subject_label_object_order() {
     assert!(!worded_between(s, &r("Sam", "manager of", "Priya")), "object before subject");
     assert!(!worded_between(s, &r("Priya", "reports to", "Sam")), "label not written");
 }
+
+// ------------------------------------------------ backend errors are visible
+
+struct Failing;
+
+impl lemmalog::extract::RelationBackend for Failing {
+    fn analyse(&mut self, s: &[String]) -> Result<Vec<lemmalog::extract::SentenceAnalysis>, String> {
+        Err(format!("relation extraction failed on {:?}: invalid input: empty texts and/or entities", s[0]))
+    }
+}
+
+// obligation: SPEC-7.1-O3
+#[test]
+fn backend_errors_keep_their_message() {
+    let mut x = GlinerExtractor::new(Failing, linker());
+    assert!(x.extract(&ep("e25", "Acme is located in Berlin.")).is_empty());
+    assert_eq!(x.stats(), (1, 1));
+    let (id, msg) = &x.errors()[0];
+    assert_eq!(id, "e25");
+    assert!(msg.contains("Acme is located in Berlin.") && msg.contains("empty texts"), "{msg}");
+}
