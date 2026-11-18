@@ -11,9 +11,13 @@
 //!   that starts at most `window` tokens after the object,
 //!
 //! with no **termination** term ("but", "however", ".", ";", ...) between the
-//! trigger and the object. **Pseudo-triggers** ("not only", "no doubt",
-//! "can't wait", ...) contain trigger words but do not negate, so they are
-//! matched first and skipped.
+//! trigger and the object, no other entity mention between them (unless it is
+//! coordinated with the object), and the trigger not inside a comma-enclosed
+//! aside after the subject. **Cessation** words ("left", "resigned",
+//! "former", ...) count as pre-triggers; **sentential** triggers ("it's not
+//! true that ...") may precede the subject. **Pseudo-triggers** ("not only", "no doubt",
+//! "can't wait", "doesn't mind", "never stopped", "hasn't left", ...) contain
+//! trigger words but do not negate, so they are matched first and skipped.
 //!
 //! Everything here is deterministic: the same text and spans always give the
 //! same answer, and nothing calls a model.
@@ -59,6 +63,9 @@ enum Kind {
     Pseudo,
     Pre,
     Post,
+    /// Sentential negation ("it's not true that ..."): may precede the
+    /// subject and governs everything up to a termination term.
+    Sent,
     Term,
 }
 
@@ -78,25 +85,54 @@ pub struct NegEx {
     pub window: usize,
 }
 
+/// Phrases that contain a trigger word but do not negate the relation.
+/// Matched before triggers (longest phrase first), so their words are
+/// consumed and cannot fire. Includes negated-positive idioms and double
+/// negatives ("never stopped", "hasn't left").
 const PSEUDO: &[&str] = &[
     "not only", "not just", "no doubt", "not to mention", "nothing but", "never mind",
     "can't wait", "cannot wait", "no problem", "not bad", "no wonder", "not necessarily",
+    "without doubt", "without a doubt", "doesn't only", "don't only", "didn't only",
+    "isn't only", "isn't just", "aren't just", "wasn't just", "doesn't just", "don't just",
+    "didn't just", "not unhappy", "not unlike",
+    "doesn't mind", "don't mind", "didn't mind", "wouldn't mind", "didn't hesitate",
+    "doesn't hesitate", "never hesitates", "never hesitated", "couldn't be happier",
+    "can't stop", "cannot stop", "couldn't stop", "can't get enough", "cannot get enough",
+    "never misses", "never miss", "never missed", "never fails", "never fail", "never failed",
+    "never stopped", "never stops", "never quit", "never quits", "never left", "never leaves",
+    "hasn't left", "haven't left", "hadn't left", "didn't leave", "doesn't leave",
+    "didn't quit", "hasn't quit", "haven't quit", "won't leave", "won't quit",
+    "left for", "leaves for", "leaving for", "quit for",
 ];
+/// Triggers that negate the next entity in their clause.
 const PRE: &[&str] = &[
     "not", "no", "never", "no longer", "neither", "nor", "without", "cannot", "can't",
     "don't", "doesn't", "didn't", "isn't", "wasn't", "aren't", "weren't", "won't",
     "haven't", "hasn't", "hadn't", "wouldn't", "shouldn't", "couldn't", "ain't",
+    // the same contractions typed without the apostrophe
+    "dont", "doesnt", "didnt", "isnt", "wasnt", "arent", "werent", "havent", "hasnt",
+    "hadnt", "wouldnt", "shouldnt", "couldnt", "cant",
     "denies", "denied", "deny", "quit", "quits", "stopped", "ceased", "refused",
     "declined",
+    // cessation: the relation held and has ended
+    "left", "leaves", "leaving", "resigned", "retired", "fired", "laid off", "let go",
+    "former", "formerly", "ex", "ex-employee", "ex-member", "moved out of",
+    "moved away from", "departed", "dropped out of",
 ];
 const POST: &[&str] = &[
     "anymore", "any more", "no more", "any longer", "is false", "was false", "not true",
     "is untrue",
 ];
+const SENT: &[&str] = &[
+    "not true that", "isn't true that", "is not true that", "wasn't true that",
+    "untrue that", "false that", "not the case that", "isn't the case that",
+];
 const TERM: &[&str] = &[
     "but", "however", "although", "though", "yet", "except", "whereas", "instead",
     "now", "still", ".", ";", "!", "?", ":",
 ];
+/// Tokens allowed between two coordinated entities ("Acme, Initech or Globex").
+const COORD: &[&str] = &[",", "or", "and", "nor", "/", "&", "either"];
 
 impl Default for NegEx {
     fn default() -> Self {
@@ -107,10 +143,13 @@ impl Default for NegEx {
             }
         };
         add(PSEUDO, Kind::Pseudo);
+        add(SENT, Kind::Sent);
         add(POST, Kind::Post);
         add(PRE, Kind::Pre);
         add(TERM, Kind::Term);
-        // longest phrase first, so "no longer" beats "no" and "not only" beats "not"
+        // longest phrase first, so "no longer" beats "no" and "not only" beats
+        // "not"; the sort is stable, so equal lengths keep list order
+        // (pseudo before trigger)
         rules.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
         NegEx { rules, window: 6 }
     }
@@ -145,6 +184,21 @@ impl NegEx {
     /// negated? `anchor` is the byte offset where the relation's subject
     /// starts: pre-negation triggers before it do not govern this relation.
     pub fn negated(&self, sentence: &str, obj: (usize, usize), anchor: usize) -> bool {
+        self.negated_with(sentence, obj, anchor, &[])
+    }
+
+    /// [`negated`](Self::negated), also given the byte spans of the
+    /// sentence's other entity mentions. A trigger governs the first entity
+    /// after it (before it, for post-triggers): another mention between the
+    /// trigger and the object blocks the scope ("quit Initech to join Acme"),
+    /// unless it is coordinated with the object ("not Acme or Initech").
+    pub fn negated_with(
+        &self,
+        sentence: &str,
+        obj: (usize, usize),
+        anchor: usize,
+        others: &[(usize, usize)],
+    ) -> bool {
         let toks = tokenize(sentence);
         let Some(o_first) = toks.iter().position(|t| t.end > obj.0) else {
             return false;
@@ -154,18 +208,50 @@ impl NegEx {
         let terminated = |a: usize, b: usize| {
             hits.iter().any(|h| h.kind == Kind::Term && h.first > a && h.last < b)
         };
+        let comma = |a: usize, b: usize| (a + 1..b).any(|i| toks[i].lower == ",");
+        // token ranges of the other mentions, ignoring any overlapping the object
+        let other: Vec<(usize, usize)> = others
+            .iter()
+            .filter(|(s, e)| *e <= obj.0 || *s >= obj.1)
+            .filter_map(|&(s, e)| {
+                let f = toks.iter().position(|t| t.end > s)?;
+                let l = toks.iter().rposition(|t| t.start < e)?;
+                (f <= l).then_some((f, l))
+            })
+            .collect();
+        let covered = |i: usize| other.iter().any(|&(f, l)| f <= i && i <= l);
+        let filler = |i: usize| covered(i) || COORD.contains(&toks[i].lower.as_str());
+        // only coordination tokens and other mentions between a and b
+        let coordinated = |a: usize, b: usize| (a + 1..b).all(filler);
+        // tokens between a and b, not counting coordinated list members
+        let dist = |a: usize, b: usize| (a + 1..b).filter(|&i| !filler(i)).count();
+        // a mention between the trigger and the object that is not
+        // coordinated with the object takes the trigger's scope
+        let blocked_pre = |a: usize| {
+            other.iter().any(|&(f, l)| f > a && l < o_first && !coordinated(l, o_first))
+        };
+        let blocked_post = |b: usize| {
+            other.iter().any(|&(f, l)| f > o_last && l < b && !coordinated(o_last, f))
+        };
+        let a_tok = toks.iter().position(|t| t.start >= anchor).unwrap_or(0);
         hits.iter().any(|h| match h.kind {
             Kind::Pre => {
                 toks[h.first].start >= anchor
                     && h.last < o_first
-                    && o_first - h.last - 1 <= self.window
+                    && dist(h.last, o_first) <= self.window
                     && !terminated(h.last, o_first)
+                    && !blocked_pre(h.last)
+                    // "Bob, who has no car, works at Acme": the trigger sits in
+                    // a comma-enclosed aside after the subject
+                    && !(comma(a_tok, h.first) && comma(h.last, o_first))
             }
             Kind::Post => {
                 h.first > o_last
-                    && h.first - o_last - 1 <= self.window
+                    && dist(o_last, h.first) <= self.window
                     && !terminated(o_last, h.first)
+                    && !blocked_post(h.first)
             }
+            Kind::Sent => h.last < o_first && !terminated(h.last, o_first),
             _ => false,
         })
     }

@@ -33,6 +33,10 @@ name = "gliner_memory"
 required-features = ["gliner", "glinker"]
 
 [[example]]
+name = "extraction_eval"
+required-features = ["gliner", "glinker"]
+
+[[example]]
 name = "lmstudio"
 required-features = ["llm"]
 
@@ -56,4 +60,4 @@ gliner = ["dep:gline-rs", "dep:orp", "dep:composable"]
 # Load the ONNX Runtime shared library at run time instead of downloading it at build time.
 gliner-load-dynamic = ["gliner", "gline-rs/load-dynamic"]
 # Entity linking with glinker-rs (in-process, no sidecar).
-glinker = ["dep:glinker-rs"]
+glinker = ["dep:glinker-rs", "dep:serde_json"]

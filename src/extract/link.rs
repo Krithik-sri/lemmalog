@@ -29,10 +29,13 @@ impl<L: EntityLinker + ?Sized> EntityLinker for &mut L {
     }
 }
 
-/// Case-insensitive alias table: `alias -> (id, optional required label)`.
+/// Case-insensitive alias table: `alias -> [(id, optional required label)]`.
+/// An alias that more than one entity claims (for the mention's label) is
+/// ambiguous and does not link: the table only answers when the name alone
+/// settles the entity.
 #[derive(Debug, Clone, Default)]
 pub struct TableLinker {
-    aliases: HashMap<String, (String, Option<String>)>,
+    aliases: HashMap<String, Vec<(String, Option<String>)>>,
 }
 
 impl TableLinker {
@@ -44,10 +47,41 @@ impl TableLinker {
     /// that GLiNER label link to it.
     pub fn entity(mut self, id: &str, label: Option<&str>, aliases: &[&str]) -> Self {
         for a in aliases {
-            self.aliases
-                .insert(a.to_lowercase(), (id.to_string(), label.map(str::to_string)));
+            let v = self.aliases.entry(a.to_lowercase()).or_default();
+            let e = (id.to_string(), label.map(str::to_string));
+            if !v.contains(&e) {
+                v.push(e);
+            }
         }
         self
+    }
+
+    /// Number of distinct aliases.
+    pub fn len(&self) -> usize {
+        self.aliases.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.aliases.is_empty()
+    }
+
+    /// Build the table from a glinker-rs entities file (JSON lines with
+    /// `entity_id`, `label` and `aliases`), so exact names can be linked
+    /// before the model is asked. Labels are not required to match.
+    #[cfg(feature = "glinker")]
+    pub fn from_glinker_entities(path: &str) -> Result<Self, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+        let mut t = TableLinker::new();
+        for (n, line) in text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
+            let v: serde_json::Value = serde_json::from_str(line).map_err(|e| format!("{path}:{}: {e}", n + 1))?;
+            let id = v["entity_id"].as_str().ok_or_else(|| format!("{path}:{}: no entity_id", n + 1))?;
+            let mut names: Vec<&str> = v["aliases"].as_array().into_iter().flatten().filter_map(|a| a.as_str()).collect();
+            if let Some(l) = v["label"].as_str() {
+                names.push(l);
+            }
+            t = t.entity(id, None, &names);
+        }
+        Ok(t)
     }
 }
 
@@ -55,14 +89,54 @@ impl EntityLinker for TableLinker {
     fn link(&mut self, _sentence: &str, mentions: &[Mention]) -> Vec<Link> {
         mentions
             .iter()
-            .map(|m| match self.aliases.get(&m.text.to_lowercase()) {
-                Some((id, None)) => Link::Canonical { id: id.clone(), score: 1.0 },
-                Some((id, Some(l))) if *l == m.label => {
-                    Link::Canonical { id: id.clone(), score: 1.0 }
+            .map(|m| {
+                let ids: Vec<&String> = self
+                    .aliases
+                    .get(&m.text.to_lowercase())
+                    .into_iter()
+                    .flatten()
+                    .filter(|(_, l)| l.as_ref().map_or(true, |l| *l == m.label))
+                    .map(|(id, _)| id)
+                    .collect();
+                match ids.as_slice() {
+                    [id] => Link::Canonical { id: (*id).clone(), score: 1.0 },
+                    [first, rest @ ..] if rest.iter().all(|i| i == first) => {
+                        Link::Canonical { id: (*first).clone(), score: 1.0 }
+                    }
+                    _ => Link::Unlinked,
                 }
-                _ => Link::Unlinked,
             })
             .collect()
+    }
+}
+
+/// Link with `first`; mentions it leaves unlinked go to `then`, in one call.
+/// Typical use: an exact, unambiguous alias table first, a model linker
+/// (glinker-rs) for everything else.
+pub struct CascadeLinker<A: EntityLinker, B: EntityLinker> {
+    pub first: A,
+    pub then: B,
+}
+
+impl<A: EntityLinker, B: EntityLinker> CascadeLinker<A, B> {
+    pub fn new(first: A, then: B) -> Self {
+        CascadeLinker { first, then }
+    }
+}
+
+impl<A: EntityLinker, B: EntityLinker> EntityLinker for CascadeLinker<A, B> {
+    fn link(&mut self, sentence: &str, mentions: &[Mention]) -> Vec<Link> {
+        let mut out = self.first.link(sentence, mentions);
+        let rest: Vec<usize> = (0..mentions.len()).filter(|&i| !matches!(out.get(i), Some(Link::Canonical { .. }))).collect();
+        if rest.is_empty() {
+            return out;
+        }
+        out.resize(mentions.len(), Link::Unlinked);
+        let ms: Vec<Mention> = rest.iter().map(|&i| mentions[i].clone()).collect();
+        for (i, l) in rest.into_iter().zip(self.then.link(sentence, &ms)) {
+            out[i] = l;
+        }
+        out
     }
 }
 
@@ -140,8 +214,10 @@ impl EntityLinker for GlinkerLinker {
                     label: Some(m.label.clone()),
                     start: s,
                     end: e,
-                    left_context: sentence[..m.start].to_string(),
-                    right_context: sentence[m.end..].to_string(),
+                    // never panic on a bad span: the pipeline rejects those
+                    // first, but the linker is public
+                    left_context: sentence.get(..m.start).unwrap_or("").to_string(),
+                    right_context: sentence.get(m.end..).unwrap_or("").to_string(),
                 }
             })
             .collect();

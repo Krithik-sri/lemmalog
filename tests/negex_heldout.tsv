@@ -1,0 +1,32 @@
+# held-out NegEx cases, written before tuning. sentence<TAB>subject<TAB>object<TAB>gold(1=negated)<TAB>other NER mentions (|-separated, optional)
+Priya does not work for Globex.	Priya	Globex	1
+Priya isn't a fan of jazz.	Priya	jazz	1
+Sam never joined the union.	Sam	union	1
+Sam has never lived in Berlin.	Sam	Berlin	1
+Priya no longer reports to Sam.	Priya	Sam	1
+Sam stopped going to the gym.	Sam	gym	1
+Priya quit the band last month.	Priya	band	1
+Sam retired from Initech in 2020.	Sam	Initech	1
+Priya was fired from Globex.	Priya	Globex	1
+Sam is an ex-employee of Initech.	Sam	Initech	1
+Priya moved out of Chennai.	Priya	Chennai	1
+Sam doesn't eat sushi anymore.	Sam	sushi	1
+Priya hasn't worked at Globex since May.	Priya	Globex	1
+Sam didnt like the movie.	Sam	movie	1
+Priya is not the team lead.	Priya	team lead	1
+Priya works for Globex.	Priya	Globex	0
+Sam lives in Berlin, not Munich.	Sam	Berlin	0	Munich
+Priya never fails to visit Chennai.	Priya	Chennai	0
+Sam doesn't only like jazz, he plays it.	Sam	jazz	0
+Priya left Initech and joined Globex.	Priya	Globex	0	Initech
+Sam, who doesn't drive, lives in Berlin.	Sam	Berlin	0
+Priya can't get enough of sushi.	Priya	sushi	0
+Sam didn't quit Initech.	Sam	Initech	0
+Priya has no plans to leave Globex.	Priya	Globex	0
+Without doubt, Sam works at Initech.	Sam	Initech	0
+Priya joined Globex after she left Initech.	Priya	Globex	0	Initech
+Sam no longer drives; he lives in Berlin.	Sam	Berlin	0
+Priya couldn't stop smiling at Globex.	Priya	Globex	0
+Sam isn't just a member of the union, he chairs it.	Sam	union	0
+Priya never left Chennai.	Priya	Chennai	0
+Sam is not unhappy at Initech.	Sam	Initech	0

@@ -53,3 +53,14 @@ fn extractor_with_glinker_rs_and_negex() {
     assert!(none.is_empty());
     assert_eq!(x.rejected().last().unwrap().reason, RejectReason::Negated);
 }
+
+// obligation: SPEC-7.1-O5
+#[test]
+fn out_of_range_span_does_not_panic_the_linker() {
+    let Some(mut lk) = linker() else { return eprintln!("GLINKER_E2E_CONFIG unset: skipped") };
+    // the span the pre-fix gline backend produced: past the end of the sentence
+    let s = "Insulin regulates glucose.";
+    let bad = Mention { text: "glucose".into(), label: "thing".into(), start: 74, end: 81, score: 1.0 };
+    let links = lk.link(s, &[m(s, "Insulin"), bad]);
+    assert_eq!(links.len(), 2);
+}
