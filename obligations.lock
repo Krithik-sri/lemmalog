@@ -1,9 +1,23 @@
 {
   "version": 2,
   "approver": "Dhanesh",
-  "criteria_commit": "ff4d1d3cac0d16a94952e274d24b24441ecea28d",
-  "obligations_digest": "72d0eeda00c7e9661e5aae654c742c577d7920f413cc2d91e40a75cde022f0d7",
+  "criteria_commit": "bc5c197d25d94a748aa93d8a447c99da772162d3",
+  "obligations_digest": "4586aefb37196c125b90896b5ec2f65ea825f371e1eef786996943ad24ff1323",
   "entries": [
+    {
+      "obligation": "SPEC-7.1-O1",
+      "path": "tests/extraction_review_test.rs",
+      "name": "negex_cessation_idioms_and_scope_blocking",
+      "lang": "rust",
+      "hash": "3d3a78ce705abc6946525bc377170802cdb2a958d74cf4c63a47025dd00432ae"
+    },
+    {
+      "obligation": "SPEC-7.1-O1",
+      "path": "tests/extraction_review_test.rs",
+      "name": "negex_mcc_on_labelled_sets",
+      "lang": "rust",
+      "hash": "f80d306b3ab779b710132ec726df6cc50bbf7a2e7e6a606dd8cace877b6eed8b"
+    },
     {
       "obligation": "SPEC-7.1-O1",
       "path": "tests/extraction_test.rs",
@@ -21,9 +35,100 @@
     {
       "obligation": "SPEC-7.1-O1",
       "path": "tests/extraction_test.rs",
+      "name": "negation_window_counts_hyphenated_words_once",
+      "lang": "rust",
+      "hash": "3a1e4b1e41888c9eed31b8fc762c4c9a9ff6492bd7a8debaf75c338e21b78b2e"
+    },
+    {
+      "obligation": "SPEC-7.1-O1",
+      "path": "tests/extraction_test.rs",
+      "name": "post_negation_window_edge",
+      "lang": "rust",
+      "hash": "4be6b59c39f94de1b55934f28989b342b5deaae481b1d951228681741138a9b7"
+    },
+    {
+      "obligation": "SPEC-7.1-O1",
+      "path": "tests/extraction_test.rs",
+      "name": "pre_negation_window_edge",
+      "lang": "rust",
+      "hash": "f486142f0eaf04924882c3884b9ad9fccb9f07adc8957a75a04f0767ed7b33af"
+    },
+    {
+      "obligation": "SPEC-7.1-O1",
+      "path": "tests/extraction_test.rs",
       "name": "pseudo_triggers_and_terminated_scopes_do_not_negate",
       "lang": "rust",
       "hash": "b9e7e8054731b21b2ed2ebf05e750ce389321505aba2fbb584ae4ce3d4953e97"
+    },
+    {
+      "obligation": "SPEC-7.1-O1",
+      "path": "tests/extraction_test.rs",
+      "name": "trigger_and_termination_words_inside_the_object_are_part_of_the_name",
+      "lang": "rust",
+      "hash": "64a7fa2d3e93d5c4505557efc9b883243d4765b531711c333b7d1a3a7f392c16"
+    },
+    {
+      "obligation": "SPEC-7.1-O1",
+      "path": "tests/extraction_test.rs",
+      "name": "window_counts_tokens_around_the_exact_object_span",
+      "lang": "rust",
+      "hash": "f8bf2b895f7349b3e8c44031d47ca7512c8ae1bceca76f00f2bcd566b3b7aeee"
+    },
+    {
+      "obligation": "SPEC-7.1-O2",
+      "path": "tests/extraction_followup_test.rs",
+      "name": "cascade_asks_the_model_only_for_what_the_table_left",
+      "lang": "rust",
+      "hash": "f4ea1ffde583d2265c468db74007daad9095163c01566e7c8da15859ee00436a"
+    },
+    {
+      "obligation": "SPEC-7.1-O2",
+      "path": "tests/extraction_followup_test.rs",
+      "name": "first_person_without_a_speaker_does_not_link",
+      "lang": "rust",
+      "hash": "88c465f4d1f419dc86100b55a6abaedaefbf1b77dae5743cdac77aa0a86c7c9e"
+    },
+    {
+      "obligation": "SPEC-7.1-O2",
+      "path": "tests/extraction_followup_test.rs",
+      "name": "shared_aliases_are_ambiguous_in_the_table",
+      "lang": "rust",
+      "hash": "d2f9747d6a9f2c20d204b3b30619ca147fcbc7e41d181e8c37cf631c267ef030"
+    },
+    {
+      "obligation": "SPEC-7.1-O2",
+      "path": "tests/extraction_followup_test.rs",
+      "name": "speaker_is_linked_by_name_once_per_episode",
+      "lang": "rust",
+      "hash": "f3131a5cbe8eac42b524f9ff5073c7aca935fec2156235b55d0de3d943daa5ac"
+    },
+    {
+      "obligation": "SPEC-7.1-O2",
+      "path": "tests/extraction_followup_test.rs",
+      "name": "titles_are_stripped_before_linking",
+      "lang": "rust",
+      "hash": "31b9cb6f0aa5c14064a6e753266fe855931ba15fa702a226f32066fb42ec93ef"
+    },
+    {
+      "obligation": "SPEC-7.1-O2",
+      "path": "tests/extraction_review_test.rs",
+      "name": "first_person_objects_link_as_the_speaker",
+      "lang": "rust",
+      "hash": "724b59bb82dfad00282e502b34ac3b7332701bb969620b8e9d01fa2960595dae"
+    },
+    {
+      "obligation": "SPEC-7.1-O2",
+      "path": "tests/extraction_review_test.rs",
+      "name": "unresolved_model_relations_are_reported",
+      "lang": "rust",
+      "hash": "8f38054ed718fd7a1007eba766e377f65105b8b8e05c918094e7e0afbd899fed"
+    },
+    {
+      "obligation": "SPEC-7.1-O2",
+      "path": "tests/extraction_test.rs",
+      "name": "byte_offsets_convert_to_char_offsets",
+      "lang": "rust",
+      "hash": "b7d21d10b86a40b72b70647c3ef850b5df9d773fd7489382f7903c21c4b9020e"
     },
     {
       "obligation": "SPEC-7.1-O2",
@@ -42,9 +147,37 @@
     {
       "obligation": "SPEC-7.1-O2",
       "path": "tests/extraction_test.rs",
+      "name": "glinker_output_maps_back_by_char_span",
+      "lang": "rust",
+      "hash": "50a2b30a4c11e95bfe9f192d48f345f3af0e6e534820d7a90c8d01de4ae770fb"
+    },
+    {
+      "obligation": "SPEC-7.1-O2",
+      "path": "tests/extraction_test.rs",
+      "name": "glinker_unknown_unlinked_or_missing_spans_do_not_link",
+      "lang": "rust",
+      "hash": "612c4d0201bc61ab1acabab160529d643a4746d21f53e7e0882105b092b1c6d7"
+    },
+    {
+      "obligation": "SPEC-7.1-O2",
+      "path": "tests/extraction_test.rs",
+      "name": "table_alias_without_label_links_any_label",
+      "lang": "rust",
+      "hash": "97020b8487e22bd6d138c42e7d77b59b61982ab232dad47efbe14e34de743c48"
+    },
+    {
+      "obligation": "SPEC-7.1-O2",
+      "path": "tests/extraction_test.rs",
       "name": "unlinked_mentions_produce_no_fact",
       "lang": "rust",
       "hash": "f9b71260984bda38095b2066ae7a5b0a63c87bbcecdffcb63e9b88c43ff6da5c"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/extraction_followup_test.rs",
+      "name": "backend_errors_keep_their_message",
+      "lang": "rust",
+      "hash": "f49629ad9c249866a2a304573f64d923a678e735f3cc6146337bb3a5f7a3db8a"
     },
     {
       "obligation": "SPEC-7.1-O3",
@@ -56,6 +189,20 @@
     {
       "obligation": "SPEC-7.1-O3",
       "path": "tests/extraction_test.rs",
+      "name": "backend_reply_that_does_not_match_the_sentences_is_a_failure",
+      "lang": "rust",
+      "hash": "4b8aa1f5c1c24ead8ad51220c45a03424c7c827cd676f4f4133c48dc09cd43e3"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/extraction_test.rs",
+      "name": "default_entity_labels_cover_the_relation_set",
+      "lang": "rust",
+      "hash": "46f1af70dcadbcf343b8e1732d86b6606b04157c7710f3e7f52b9de73b00e538"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/extraction_test.rs",
       "name": "extraction_is_memoized_and_repeatable",
       "lang": "rust",
       "hash": "867731792b5eb159ca719f2713bdf636924ad1e7bf3666048fbb5da9ea074425"
@@ -63,9 +210,100 @@
     {
       "obligation": "SPEC-7.1-O3",
       "path": "tests/extraction_test.rs",
+      "name": "fixture_backend_reports_exact_spans_and_counts_calls",
+      "lang": "rust",
+      "hash": "d241c0117bae91ad00aa1084bb2db774e3fd3f850b85a0502b8a34aa14aa83e6"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/extraction_test.rs",
       "name": "output_is_deduplicated_and_sorted",
       "lang": "rust",
       "hash": "97a342b898458d058ef12977a4f63fcdd7bed40485a24f37e1f32c1c245de703"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/extraction_test.rs",
+      "name": "relations_below_min_score_are_rejected",
+      "lang": "rust",
+      "hash": "04319177d21046ec9773309de0bc99ddeee1cb6b2d721464ab62ee65d9acd02b"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/extraction_test.rs",
+      "name": "sentence_split_drops_blank_pieces",
+      "lang": "rust",
+      "hash": "0e746555c50f1a0626aa3555c50655107a47751c40a06a51a38785df96be4908"
+    },
+    {
+      "obligation": "SPEC-7.1-O4",
+      "path": "tests/extraction_followup_test.rs",
+      "name": "both_manager_directions_keep_the_one_the_sentence_words",
+      "lang": "rust",
+      "hash": "1ebacf69bf4dfa869cda4ed02ab069f84c6777a8ea89443ba8844dfd8604042a"
+    },
+    {
+      "obligation": "SPEC-7.1-O4",
+      "path": "tests/extraction_followup_test.rs",
+      "name": "directions_from_different_sentences_both_stand",
+      "lang": "rust",
+      "hash": "ee1ab1d1784487cd1b64d92908b77f4f81971d222671d49611331ff96368ff7b"
+    },
+    {
+      "obligation": "SPEC-7.1-O4",
+      "path": "tests/extraction_followup_test.rs",
+      "name": "same_label_both_ways_is_decided_by_wording_position_not_link_scores",
+      "lang": "rust",
+      "hash": "6dfa633d2ffd7ccaa1cfd9c68459aa0293a04facfc918743a78ef5c00975a1cd"
+    },
+    {
+      "obligation": "SPEC-7.1-O4",
+      "path": "tests/extraction_followup_test.rs",
+      "name": "without_a_cue_the_higher_confidence_direction_wins",
+      "lang": "rust",
+      "hash": "ffdc444c5c41ddfc916d45b37f05c8867c7b8c1813a0a00599f8f6f03fd854aa"
+    },
+    {
+      "obligation": "SPEC-7.1-O4",
+      "path": "tests/extraction_followup_test.rs",
+      "name": "without_wording_the_relation_score_decides_not_the_link_score",
+      "lang": "rust",
+      "hash": "e6269ab0d9d4dbd3886b10ac06ff690fec1c811ea9ed11c2e165deb33bf24edd"
+    },
+    {
+      "obligation": "SPEC-7.1-O4",
+      "path": "tests/extraction_review_test.rs",
+      "name": "manager_relations_read_as_reports_to",
+      "lang": "rust",
+      "hash": "8a7c089e7c7dddb2c2f33702cc5e4e4529c9060b1d8c6e7bbc50f79f2f22b96f"
+    },
+    {
+      "obligation": "SPEC-7.1-O5",
+      "path": "tests/extraction_review_test.rs",
+      "name": "out_of_range_spans_are_rejected_not_trusted",
+      "lang": "rust",
+      "hash": "750fb59899b1d31a0c21a842199f93b1b78747be1d323d4bc784bcefadf24c1e"
+    },
+    {
+      "obligation": "SPEC-7.1-O5",
+      "path": "tests/extraction_review_test.rs",
+      "name": "resolved_relations_are_negation_checked",
+      "lang": "rust",
+      "hash": "12ca3864be4c3d89922b7bd079843ec7c85cfb3ef1ca9f6b094d0f628b24bb36"
+    },
+    {
+      "obligation": "SPEC-7.1-O5",
+      "path": "tests/extraction_review_test.rs",
+      "name": "sentence_splitter_keeps_abbreviations_numbers_and_ellipses",
+      "lang": "rust",
+      "hash": "8c3820b5c58d589eaab2e2ac41699f7e13200809d5e4e9a660c6465c0a278520"
+    },
+    {
+      "obligation": "SPEC-7.1-O5",
+      "path": "tests/glinker_e2e_test.rs",
+      "name": "out_of_range_span_does_not_panic_the_linker",
+      "lang": "rust",
+      "hash": "2580a5f888776c68d0b3cebb7965c55e073bd1e95afeb3c939deb051703fcca1"
     }
   ]
 }
