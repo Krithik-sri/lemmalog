@@ -7,10 +7,12 @@ pub mod eval;
 pub mod link;
 pub mod negex;
 pub mod pipeline;
+pub mod setup;
 #[cfg(feature = "gliner")]
 pub mod gline;
 
-pub use link::{CascadeLinker, EntityLinker, Link, TableLinker};
+pub use link::{CascadeLinker, EntityLinker, Link, NameLinker, TableLinker};
+pub use setup::{default_extractor, GlinerConfig, LazyExtractor};
 #[cfg(feature = "glinker")]
 pub use link::GlinkerLinker;
 pub use negex::NegEx;

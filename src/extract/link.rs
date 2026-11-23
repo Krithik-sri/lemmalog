@@ -29,6 +29,51 @@ impl<L: EntityLinker + ?Sized> EntityLinker for &mut L {
     }
 }
 
+impl EntityLinker for Box<dyn EntityLinker> {
+    fn link(&mut self, sentence: &str, mentions: &[Mention]) -> Vec<Link> {
+        (**self).link(sentence, mentions)
+    }
+}
+
+/// The linker for an open vocabulary with no entity database: an entity's
+/// canonical id is its name as written, with whitespace collapsed, a
+/// trailing possessive ("Acme's") and trailing punctuation removed. Free-text
+/// facts then join line-protocol facts that name the same entity
+/// ("Alice --works_at--> Acme"); spelling variants are reconciled later with
+/// alias edges (`lemmalog_canonicalize`). A mention with no letters or
+/// digits does not link.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NameLinker;
+
+impl NameLinker {
+    /// The canonical id for a name, or `None` if nothing nameable is left.
+    pub fn canonical(name: &str) -> Option<String> {
+        let mut s = name.split_whitespace().collect::<Vec<_>>().join(" ");
+        loop {
+            let t = s.trim_end_matches(|c: char| matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | '"' | ')'));
+            let t = t.strip_suffix("'s").or_else(|| t.strip_suffix("\u{2019}s")).unwrap_or(t);
+            if t.len() == s.len() {
+                break;
+            }
+            s = t.trim_end().to_string();
+        }
+        let s = s.trim_start_matches(|c: char| matches!(c, '"' | '(')).to_string();
+        s.chars().any(char::is_alphanumeric).then_some(s)
+    }
+}
+
+impl EntityLinker for NameLinker {
+    fn link(&mut self, _sentence: &str, mentions: &[Mention]) -> Vec<Link> {
+        mentions
+            .iter()
+            .map(|m| match Self::canonical(&m.text) {
+                Some(id) => Link::Canonical { id, score: 1.0 },
+                None => Link::Unlinked,
+            })
+            .collect()
+    }
+}
+
 /// Case-insensitive alias table: `alias -> [(id, optional required label)]`.
 /// An alias that more than one entity claims (for the mention's label) is
 /// ambiguous and does not link: the table only answers when the name alone

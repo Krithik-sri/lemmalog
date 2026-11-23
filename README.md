@@ -33,7 +33,7 @@ re-deriving them (or worse, re-reasoning them in-context).
 | Per-position secondary indexes; row-id lookups; WAM-style trail backtracking | ✅ |
 | Epoch change-log: `changes_from/since` + "new in memory" context section | ✅ |
 | Hybrid retrieval (`context_for_query`): BM25 + entity/graph boosting, budget-aware | ✅ |
-| Extraction boundary: `Extractor` trait, memoized `MockExtractor` + `LlmExtractor` | ✅ |
+| Extraction boundary: `Extractor` trait, memoized `MockExtractor` + `LlmExtractor`; LLM-free `GlinerExtractor` is the default for free text | ✅ |
 | Deterministic update policy: ADD / UPDATE / NOOP / escalate | ✅ |
 | Positional `ContextAssembler` (distilled top, verbatim provenance bottom, budget) | ✅ |
 | `AgentMemory` facade: observe → policy → maintain → ask/ask_deep/context/why | ✅ |
@@ -107,8 +107,35 @@ Task prompts then stay domain-specific and reference the skill in one line.
 ## MCP server: use from Claude Code or Kimi CLI
 
 ```sh
-cargo build --release --features mcp
+cargo build --release --features mcp,gliner,glinker   # LLM-free extraction built in
+cargo build --release --features mcp                  # line protocol only
 ```
+
+**Extraction is LLM-free by default.** `lemmalog_observe` takes
+line-protocol facts (`S --rel--> O`) and plain sentences in the same
+input; sentences go through GLiNER + NegEx + an entity linker
+(`spec/extraction.md`), with no model call. Pass `speaker` so "I"/"me"
+resolve. The model is loaded on the first sentence, from
+`LEMMALOG_GLINER_DIR` (default
+`~/.lemmalog/models/gliner-multitask-large-v0.5`, files `tokenizer.json`
+and `onnx/model.onnx`):
+
+```sh
+huggingface-cli download onnx-community/gliner-multitask-large-v0.5 \
+  tokenizer.json onnx/model.onnx \
+  --local-dir ~/.lemmalog/models/gliner-multitask-large-v0.5
+```
+
+Without `LEMMALOG_GLINKER_PIPELINE` (a glinker-rs `pipeline.json`),
+entities link by name, so extracted facts join the ones agents assert by
+hand. If the model is missing, or the binary was built without
+`gliner`, or `LEMMALOG_EXTRACTOR=off`, observe accepts line protocol only
+and says why. `lemmalog-bench ingest` extracts the same way;
+`LEMMALOG_EXTRACTOR=llm` switches it back to Claude.
+
+`gliner` is not a default Cargo feature: its ONNX Runtime dependency
+downloads a native library at build time, which would make every plain
+`cargo build` need that network access.
 
 Register the server (stdio JSON-RPC, 12 tools):
 

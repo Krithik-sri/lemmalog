@@ -5,6 +5,7 @@
 //! load and vice versa.
 //!
 //!   lemmalog-cli observe  --facts 'alice --works_at--> acme'
+//!   lemmalog-cli observe  --facts 'I work at Acme.' --speaker alice   # free text
 //!   lemmalog-cli query   --goal 'current("alice", R, O)'
 //!   lemmalog-cli retract --facts 'alice --works_at--> acme'
 //!   lemmalog-cli context --query 'where does alice work'
@@ -18,11 +19,14 @@
 //! or have every writer use the CLI.
 //!
 //! Env: LEMMALOG_MCP_PATH (snapshot path; required for mutations,
-//! optional for fresh-session queries).
+//! optional for fresh-session queries). Free text in `observe` is
+//! extracted without an LLM; see `lemmalog::extract::setup` for
+//! LEMMALOG_EXTRACTOR / LEMMALOG_GLINER_DIR / LEMMALOG_GLINKER_PIPELINE.
 
 #![cfg(feature = "mcp")]
 
-use lemmalog::agent::{AgentMemory, MockExtractor};
+use lemmalog::agent::AgentMemory;
+use lemmalog::extract::{default_extractor, LazyExtractor};
 use std::io::Read;
 
 fn snap_path() -> String {
@@ -32,12 +36,12 @@ fn snap_path() -> String {
     })
 }
 
-fn load(path: &str) -> AgentMemory<MockExtractor> {
-    match AgentMemory::load(MockExtractor::new(0.9), path) {
+fn load(path: &str) -> AgentMemory<LazyExtractor> {
+    match AgentMemory::load(default_extractor(), path) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("lemmalog-cli: snapshot load failed ({e}); starting fresh");
-            AgentMemory::new(MockExtractor::new(0.9), "").expect("fresh memory")
+            AgentMemory::new(default_extractor(), "").expect("fresh memory")
         }
     }
 }
@@ -66,7 +70,14 @@ fn main() {
             let text = stdin_or_flag(&args, "--facts");
             let ts = flag(&args, "--ts").and_then(|t| t.parse::<i64>().ok());
             let ts = ts.unwrap_or(m.engine.now);
-            let (report, dropped) = m.observe_extracted(&text, ts);
+            let speaker = flag(&args, "--speaker");
+            let (report, dropped, prose) = if m.extractor().enabled() {
+                let r = m.observe_text(&text, ts, speaker.as_deref());
+                (r.report, r.dropped, Some((r.prose_lines, r.prose_facts)))
+            } else {
+                let (report, dropped) = m.observe_extracted(&text, ts);
+                (report, dropped, None)
+            };
             let _ = m.maintain(m.engine.now);
             m.save(&snap_path()).expect("save snapshot");
             println!(
@@ -76,8 +87,17 @@ fn main() {
                 report.noop,
                 report.escalations.len()
             );
+            if let Some((lines, found)) = prose.filter(|(l, _)| *l > 0) {
+                println!("free text: {lines} line(s) -> {found} fact(s)");
+            }
+            if let Some(e) = m.extractor().error() {
+                eprintln!("lemmalog-cli: extractor failed to load: {e}");
+            }
             for d in dropped.iter().take(5) {
                 println!("dropped: {} ({})", d.0, d.1);
+            }
+            if !dropped.is_empty() && prose.is_none() {
+                println!("(free-text extraction is {})", m.extractor().status());
             }
         }
         "retract" => {

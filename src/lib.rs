@@ -42,7 +42,7 @@ pub mod semantics;
 pub mod session;
 
 pub use agent::{
-    assemble_context, AgentMemory, Episode, Extractor, IngestReport, LlmExtractor, MockExtractor,
+    assemble_context, AgentMemory, Episode, Extractor, IngestReport, LlmExtractor, MockExtractor, TextIngest,
     DEFAULT_RULES, EXTRACTION_PROMPT,
 };
 pub use ast::{parse_program, ClauseId, ParseError};

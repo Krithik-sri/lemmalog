@@ -1,9 +1,11 @@
 //! lemmalog-bench: the bridge binary for the MemEval harness.
 //!
 //! Two commands:
-//!   lemmalog-bench ingest  <conv.json> <snapshot-path>   # extraction (Claude,
-//!     chunked, file-cached) + update policy + derived rules + date
-//!     normalization + entity reconciliation -> snapshot
+//!   lemmalog-bench ingest  <conv.json> <snapshot-path>   # extraction
+//!     (LLM-free by default: GLiNER + NegEx + linker, one episode per turn
+//!     with its speaker; `LEMMALOG_EXTRACTOR=llm` for Claude, chunked,
+//!     file-cached) + update policy + derived rules + date normalization +
+//!     entity reconciliation -> snapshot
 //!   lemmalog-bench context <snapshot-path> <question>    # hybrid retrieval
 //!     (BM25 + graph boosts + embedding rerank) -> assembled memory context
 //!   lemmalog-bench recall  <snapshot-path> <question>    # targeted re-read
@@ -13,8 +15,11 @@
 //! with {speaker, text} turns and session_N_date_time) or raw LoCoMo
 //! ("1:56 pm on 8 May, 2023" dates).
 //!
-//! Env: ANTHROPIC_API_KEY (extraction + reconciliation), LEMMALOG_EXTRACT_MODEL
-//! (default claude-sonnet-4-6), LEMMALOG_CACHE_DIR (extraction cache: pay
+//! Env: LEMMALOG_EXTRACTOR (gliner, the default, or llm), LEMMALOG_GLINER_DIR
+//! and LEMMALOG_GLINKER_PIPELINE (see `lemmalog::extract::setup`),
+//! ANTHROPIC_API_KEY (reconciliation, and extraction when
+//! LEMMALOG_EXTRACTOR=llm), LEMMALOG_EXTRACT_MODEL (default
+//! claude-sonnet-4-6), LEMMALOG_CACHE_DIR (LLM extraction cache: pay
 //! once, rerun free), LEMMALOG_CONTEXT_BUDGET (default 1800),
 //! LEMMALOG_EMBED_BASE (embedding endpoint for the semantic rerank and
 //! reconciliation candidate gating; default local LM Studio nomic, "off"
@@ -171,6 +176,8 @@ fn ingest(conv_path: &str, snap: &str) {
 
     // collect (date, text) sessions in numeric order
     let mut sessions: BTreeMap<usize, (String, String)> = BTreeMap::new();
+    // the same sessions as (speaker, text) turns, for per-turn extraction
+    let mut turns: BTreeMap<usize, Vec<(String, String)>> = BTreeMap::new();
     if let Some(c) = conv.get("conversation").and_then(|c| c.as_object()) {
         for (k, v) in c {
             if let Some(num) = k
@@ -183,11 +190,12 @@ fn ingest(conv_path: &str, snap: &str) {
                     .unwrap_or_default()
                     .to_string();
                 let mut text = format!("Session {num} on {date}:\n");
-                if let Some(turns) = v.as_array() {
-                    for t in turns {
+                if let Some(ts) = v.as_array() {
+                    for t in ts {
                         let speaker = t.get("speaker").and_then(|s| s.as_str()).unwrap_or("user");
                         let body = t.get("text").and_then(|s| s.as_str()).unwrap_or_default();
                         text.push_str(&format!("{speaker}: {body}\n"));
+                        turns.entry(num).or_default().push((speaker.to_string(), body.to_string()));
                     }
                 }
                 sessions.insert(num, (date, text));
@@ -200,12 +208,26 @@ fn ingest(conv_path: &str, snap: &str) {
         sessions.values().map(|(_, t)| t.len()).sum::<usize>()
     );
 
-    let base = client();
-    let extractor =
-        LlmClientExtractor::new(base).with_prompt(lemmalog::longmemeval::OPEN_VOCAB_PROMPT);
-    let extractor: Box<dyn lemmalog::agent::Extractor> = match std::env::var("LEMMALOG_CACHE_DIR") {
-        Ok(dir) => Box::new(extractor.file_cached(&dir)),
-        Err(_) => Box::new(extractor),
+    // LLM-free extraction is the default; Claude only when asked for
+    let use_llm = std::env::var("LEMMALOG_EXTRACTOR").map_or(false, |v| v.trim().eq_ignore_ascii_case("llm"));
+    let extractor: Box<dyn lemmalog::agent::Extractor> = if use_llm {
+        let extractor =
+            LlmClientExtractor::new(client()).with_prompt(lemmalog::longmemeval::OPEN_VOCAB_PROMPT);
+        match std::env::var("LEMMALOG_CACHE_DIR") {
+            Ok(dir) => Box::new(extractor.file_cached(&dir)),
+            Err(_) => Box::new(extractor),
+        }
+    } else {
+        let x = lemmalog::extract::default_extractor();
+        if !x.enabled() {
+            eprintln!(
+                "lemmalog-bench: LLM-free extraction is {}\n  set LEMMALOG_EXTRACTOR=llm to extract with Claude instead",
+                x.status()
+            );
+            std::process::exit(2);
+        }
+        eprintln!("lemmalog-bench: extraction {}", x.status());
+        Box::new(x)
     };
     let mut m = AgentMemory::new(extractor, RULES).expect("memory");
 
@@ -215,10 +237,22 @@ fn ingest(conv_path: &str, snap: &str) {
     for (num, (date, text)) in &sessions {
         let ts = parse_date(date);
         dates.insert(ts.to_string(), date.clone());
-        let report = m.observe_as(text, ts, "the_user");
-        total_facts += report.added + report.updated;
+        let added = if use_llm {
+            let report = m.observe_as(text, ts, "the_user");
+            total_facts += report.added + report.updated;
+            report.added
+        } else {
+            // one episode per turn, so "I" resolves to that turn's speaker
+            let mut added = 0;
+            for (speaker, body) in turns.get(num).into_iter().flatten() {
+                let report = m.observe_as(body, ts, speaker);
+                total_facts += report.added + report.updated;
+                added += report.added;
+            }
+            added
+        };
         m.maintain(ts);
-        eprintln!("  session {num}: +{} facts", report.added);
+        eprintln!("  session {num}: +{added} facts");
     }
     // normalize date-shaped objects to comparable integers: dated/2 feeds
     // happened_before, and the engine's `<` on symbols compares intern ids,
