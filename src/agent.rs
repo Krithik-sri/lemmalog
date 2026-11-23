@@ -371,6 +371,13 @@ impl<X: Extractor> AgentMemory<X> {
         if !extra_rules.trim().is_empty() {
             engine.install_program(extra_rules)?;
         }
+        // Program-embedded ground facts (the exclusivity table) are minted
+        // into the fact store only by `run()`, and `apply_update` reads them
+        // from there via `query`. Mint them now, so `exclusive("works_at")`
+        // governs from the very first `observe_*` — without this, conflicting
+        // observations made before the first `maintain()` escalate instead of
+        // superseding.
+        engine.run();
         Ok(AgentMemory {
             engine,
             extractor,

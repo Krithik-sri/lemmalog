@@ -66,6 +66,29 @@ fn exclusive_pred_supersedes_deterministically() {
 }
 
 #[test]
+fn exclusive_supersedes_without_intermediate_maintain() {
+    // Regression: program-embedded facts (the exclusivity table) are minted
+    // into the fact store by `run()`. Before `AgentMemory::new` ran the
+    // program once, `apply_update`'s exclusivity query saw nothing until the
+    // first `maintain()`, so conflicting observations made before any
+    // maintain silently escalated instead of superseding.
+    let mut m = mem("");
+    let r1 = m.observe("alice --works_at--> acme");
+    assert_eq!(r1.added, 1);
+    // deliberately NO maintain() here
+    let r2 = m.observe_at("alice --works_at--> gigant", 200);
+    assert_eq!(r2.updated, 1, "deterministic UPDATE, no escalation");
+    assert_eq!(r2.added, 0);
+    assert!(r2.escalations.is_empty());
+    m.maintain(200);
+    assert_eq!(
+        m.ask("current(\"alice\", \"works_at\", O)").unwrap(),
+        vec!["O=gigant".to_string()],
+        "knowledge update applied without an intermediate maintain"
+    );
+}
+
+#[test]
 fn non_exclusive_conflict_escalates() {
     let mut m = mem("");
     m.observe("alice --likes--> bob");
