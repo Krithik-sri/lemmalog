@@ -327,6 +327,18 @@ pub struct IngestReport {
     pub escalations: Vec<String>,
 }
 
+/// Outcome of one [`AgentMemory::observe_text`].
+#[derive(Debug, Default, Clone)]
+pub struct TextIngest {
+    pub report: IngestReport,
+    /// Line-protocol lines that were not asserted, with the reason.
+    pub dropped: Vec<(String, String)>,
+    /// Free-text lines sent to the extractor.
+    pub prose_lines: usize,
+    /// Candidate facts the extractor found in them.
+    pub prose_facts: usize,
+}
+
 /// Agent memory facade: engine + extraction + episodes + escalations.
 pub struct AgentMemory<X: Extractor> {
     pub engine: Engine,
@@ -610,6 +622,39 @@ impl<X: Extractor> AgentMemory<X> {
         self.episodes.push(episode);
         self.escalations.extend(report.escalations.clone());
         (report, dropped)
+    }
+
+    /// Ingest mixed input: lines that contain `-->` are line-protocol facts
+    /// (parsed as in [`observe_extracted`](Self::observe_extracted)); every
+    /// other non-empty line is free text, which goes to the extractor as one
+    /// episode with `speaker` (first-person words resolve to it). Both kinds
+    /// share one episode id, so provenance points at the whole input.
+    pub fn observe_text(&mut self, text: &str, ts: i64, speaker: Option<&str>) -> TextIngest {
+        self.engine.set_now(ts);
+        let (protocol, prose): (Vec<&str>, Vec<&str>) =
+            text.lines().filter(|l| !l.trim().is_empty()).partition(|l| l.contains("-->"));
+        let (mut candidates, dropped) = parse_protocol_reported(&protocol.join("\n"), 0.9);
+        let protocol_facts = candidates.len();
+        self.episode_counter += 1;
+        let id = format!("ep{}", self.episode_counter);
+        let speaker = speaker.map(str::to_string);
+        if !prose.is_empty() {
+            let free = Episode { id: id.clone(), text: prose.join("\n"), ts, speaker: speaker.clone() };
+            candidates.extend(self.extractor.extract(&free));
+        }
+        let episode = Episode { id, text: text.to_string(), ts, speaker };
+        let mut report = IngestReport::default();
+        for c in &candidates {
+            self.apply_update(c, &episode, &mut report);
+        }
+        self.episodes.push(episode);
+        self.escalations.extend(report.escalations.clone());
+        TextIngest { report, dropped, prose_lines: prose.len(), prose_facts: candidates.len() - protocol_facts }
+    }
+
+    /// The extractor this memory ingests free text with.
+    pub fn extractor(&self) -> &X {
+        &self.extractor
     }
 
     /// Agent tool surface: install a rule batch (versioned, revertable).

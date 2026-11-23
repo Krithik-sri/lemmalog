@@ -17,6 +17,14 @@ deterministic stages:
    because gline-rs already found the spans. Feature `glinker`. Tests use the
    deterministic `TableLinker`.
 
+`GlinerExtractor` is the default extractor for free text
+(`extract::setup::default_extractor`): `lemmalog_observe`, `lemmalog-cli
+observe` and `lemmalog-bench ingest` use it, loading the model on first
+use; the LLM extractors are opt-in (`LEMMALOG_EXTRACTOR=llm` in the
+bench). With no entity database configured, the linker is `NameLinker`,
+whose canonical id is the normalised name, so extracted facts join
+line-protocol facts about the same entity.
+
 The obligations below are what this change promises. Each one has
 tagged Rust tests in `tests/extraction_test.rs`. `obligations.lock` on `main`
 pins the obligations and the tests, so a later PR cannot weaken them unnoticed.
@@ -75,8 +83,11 @@ obligations:
   - id: SPEC-7.1-O3
     says: >
       Extraction is deterministic and memoized, and calls no LLM. The backend
-      runs at most once per episode id, and extracting the same episode again
-      returns identical facts. Output holds one fact per (subject, predicate,
+      runs at most once per episode id that it analysed successfully, and
+      extracting the same episode again returns identical facts. A failed
+      episode is not memoized: extracting it again retries the backend.
+      A relation with a NaN or infinite relation or link score is rejected
+      with reason LowScore. Output holds one fact per (subject, predicate,
       object), with the highest confidence, sorted by that triple. A backend
       error yields no facts, counts as a failure in stats(), and keeps its
       message, with the episode id, in errors(). The GLiNER backend skips
@@ -99,7 +110,8 @@ obligations:
       fact whose relation label is written between its subject and its
       object ("Sam reports to Priya") wins, then the one with the higher
       relation score, then the smaller triple; the other is reported with
-      reason Reversed. Link scores never decide the direction. Facts from
+      reason Reversed. A relation whose subject and object link to the same
+      entity produces no fact and is reported with reason SelfLoop. Link scores never decide the direction. Facts from
       different sentences are not compared.
     kind: contract
     risk: high
@@ -108,10 +120,11 @@ obligations:
       - src/extract/pipeline.rs::run
   - id: SPEC-7.1-O5
     says: >
-      Negation and linking only ever see mention spans that are valid byte
-      ranges of their own sentence. A relation with any other span produces
-      no fact and is reported with reason BadSpan; no span makes extraction
-      panic. Sentences are not split inside numbers ("2.5"), after titles
+      Negation and linking only ever see mention spans that are non-empty,
+      valid byte ranges of their own sentence, and a mention's text is the
+      sentence text at its span, so negation and linking judge the same
+      words. A relation with any other span produces no fact and is reported
+      with reason BadSpan; no span makes extraction panic. Sentences are not split inside numbers ("2.5"), after titles
       ("Dr."), or after abbreviations and initials ("Corp.", "U.S.") followed
       by a lower-case word, nor at an ellipsis followed by one.
     kind: property

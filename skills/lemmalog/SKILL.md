@@ -154,6 +154,11 @@ aggregates need):
 - Bare capitalized words are **variables** — quote entity names:
   `reports_to("Alice", Y)`, never `reports_to(Alice, Y)`.
 - Fact line protocol: `S --rel[conf]--> O`, one per line.
+- `lemmalog_observe` also takes plain sentences mixed with protocol lines
+  and extracts them itself, without an LLM (relations works_at, manager,
+  likes, job_title, member_of, located_in; negated sentences assert
+  nothing). Pass `speaker` so "I" resolves. Anything outside that
+  vocabulary, or that must be exact, write as protocol lines.
 - **An asserted fact is `current(S, rel, O)`, not `rel(S, O)`.** Rule bodies
   match the triple: `reaches(X, Y) :- current(X, depends_on, Y).` Writing
   `depends_on(X, Y)` instead installs cleanly, reports a backfill count, and

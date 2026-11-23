@@ -6,7 +6,11 @@
 #   ./scripts/install.sh --uninstall  # remove registrations + skill
 #
 # Env: LEMMALOG_SNAPSHOT (default ~/.lemmalog/memory.snap) — where memory
-# persists across sessions.
+# persists across sessions. LEMMALOG_FEATURES (default mcp,gliner,glinker)
+# — cargo features; the default builds in LLM-free extraction of free text
+# (the ONNX Runtime build step downloads its library; set
+# LEMMALOG_FEATURES=mcp for a protocol-only build). LEMMALOG_GLINER_DIR
+# (default ~/.lemmalog/models/gliner-multitask-large-v0.5) — GLiNER model.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -19,9 +23,21 @@ MODE="install"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+FEATURES="${LEMMALOG_FEATURES:-mcp,gliner,glinker}"
+GLINER_DIR="${LEMMALOG_GLINER_DIR:-$HOME/.lemmalog/models/gliner-multitask-large-v0.5}"
+
 build() {
-    echo "==> building lemmalog (release)..."
-    cargo build --release --features mcp
+    echo "==> building lemmalog (release, features: $FEATURES)..."
+    cargo build --release --features "$FEATURES"
+    case ",$FEATURES," in
+        *,gliner,*|*,gliner-load-dynamic,*)
+            if [ ! -f "$GLINER_DIR/onnx/model.onnx" ] || [ ! -f "$GLINER_DIR/tokenizer.json" ]; then
+                echo "-- GLiNER model not found in $GLINER_DIR: free text will not be extracted"
+                echo "   until it is there (line-protocol facts work either way). Fetch it with:"
+                echo "     huggingface-cli download onnx-community/gliner-multitask-large-v0.5 \\"
+                echo "       tokenizer.json onnx/model.onnx --local-dir \"$GLINER_DIR\""
+            fi ;;
+    esac
 }
 
 register_claude() {
@@ -29,11 +45,11 @@ register_claude() {
         if [ "$MODE" = "install" ]; then
             echo "==> registering MCP server with Claude Code"
             claude mcp add lemmalog \
-                --env LEMMALOG_MCP_PATH="$SNAP" \
+                --env LEMMALOG_MCP_PATH="$SNAP" --env LEMMALOG_GLINER_DIR="$GLINER_DIR" \
                 -- "$BIN/lemmalog-mcp" 2>/dev/null \
               || claude mcp remove lemmalog >/dev/null 2>&1 && \
                  claude mcp add lemmalog \
-                    --env LEMMALOG_MCP_PATH="$SNAP" \
+                    --env LEMMALOG_MCP_PATH="$SNAP" --env LEMMALOG_GLINER_DIR="$GLINER_DIR" \
                     -- "$BIN/lemmalog-mcp"
             mkdir -p ~/.claude/skills
             rm -rf ~/.claude/skills/lemmalog
@@ -54,11 +70,11 @@ register_kimi() {
         if [ "$MODE" = "install" ]; then
             echo "==> registering MCP server with Kimi CLI"
             kimi mcp add lemmalog \
-                --env LEMMALOG_MCP_PATH="$SNAP" \
+                --env LEMMALOG_MCP_PATH="$SNAP" --env LEMMALOG_GLINER_DIR="$GLINER_DIR" \
                 -- "$BIN/lemmalog-mcp" 2>/dev/null \
               || { kimi mcp remove lemmalog >/dev/null 2>&1 || true; \
                    kimi mcp add lemmalog \
-                    --env LEMMALOG_MCP_PATH="$SNAP" \
+                    --env LEMMALOG_MCP_PATH="$SNAP" --env LEMMALOG_GLINER_DIR="$GLINER_DIR" \
                     -- "$BIN/lemmalog-mcp"; }
             mkdir -p ~/.kimi/skills 2>/dev/null || true
             if [ -d ~/.kimi ]; then

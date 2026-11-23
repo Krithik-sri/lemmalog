@@ -24,22 +24,25 @@
 
 use lemmalog::agent::AgentMemory;
 use lemmalog::canonical;
+use lemmalog::extract::{default_extractor, LazyExtractor};
 use lemmalog::eval::Engine;
 use lemmalog::intern::Value;
 use serde_json::{json, Value as J};
 use std::io::{BufRead, Write};
 
 struct State {
-    memory: AgentMemory<lemmalog::agent::MockExtractor>,
+    /// Free text in `lemmalog_observe` goes through the default LLM-free
+    /// extractor (gline-rs + NegEx + linker), loaded on first use.
+    memory: AgentMemory<LazyExtractor>,
 }
 
 fn main() {
     let path = std::env::var("LEMMALOG_MCP_PATH").ok();
-    let mut memory =
-        AgentMemory::new(lemmalog::agent::MockExtractor::new(0.9), "").expect("fresh memory");
+    let mut memory = AgentMemory::new(default_extractor(), "").expect("fresh memory");
+    eprintln!("lemmalog-mcp: free-text extraction {}", memory.extractor().status());
     if let Some(p) = &path {
         if std::path::Path::new(p).exists() {
-            match AgentMemory::load(lemmalog::agent::MockExtractor::new(0.9), p) {
+            match AgentMemory::load(default_extractor(), p) {
                 Ok(m) => memory = m,
                 Err(e) => eprintln!("lemmalog-mcp: snapshot load failed: {e}"),
             }
@@ -91,7 +94,7 @@ fn main() {
 fn tools() -> J {
     json!([
         tool("lemmalog_observe",
-            "Assert facts into memory (host model does extraction). Input: facts in the line protocol 'S --rel[conf]--> O', one per line; optional ts integer = the facts' valid-from time (default: now). Backdating with ts is safe: it sets valid-time only, never the clock reads use. Example: 'Alice --works_at--> Acme\\nBob --manager--> Carol'.", &["facts", "ts"], &["facts"]),
+            "Assert facts into memory. Input `facts`: line-protocol facts 'S --rel[conf]--> O', one per line, and/or plain sentences, which lemmalog extracts itself without an LLM (GLiNER + negation detection; relations works_at, manager, likes, job_title, member_of, located_in). Optional `speaker`: who wrote the sentences, so 'I'/'me' resolve to them. Optional ts integer = the facts' valid-from time (default: now). Backdating with ts is safe: it sets valid-time only, never the clock reads use. Example: 'Alice --works_at--> Acme\\nBob no longer reports to Carol.'", &["facts", "speaker", "ts"], &["facts"]),
         tool("lemmalog_retract",
             "Retract facts that turned out to be WRONG (line protocol, same as observe). Open matching rows are removed and invalidation propagates: the response reports which derived facts died as a consequence. For a value that merely CHANGED, prefer re-asserting the same relation (the update policy supersedes).", &["facts"], &["facts"]),
         tool("lemmalog_query",
@@ -135,7 +138,8 @@ with your last epoch resyncs you after context resets.";
 /// `query` on lemmalog_observe will eventually pass it one).
 fn prop_desc(p: &str) -> &'static str {
     match p {
-        "facts" => "line-protocol facts",
+        "facts" => "line-protocol facts and/or plain sentences",
+        "speaker" => "author of the sentences (resolves I/me)",
         "goal" => "query atom",
         "fact" => "ground fact",
         "rules" => "rule program text",
@@ -294,8 +298,18 @@ fn tool_call(state: &mut State, name: &str, args: &J, path: Option<&str>) -> Res
             // No ts means "now" — the wall clock, never the engine clock,
             // which is only ever a record of the last write.
             let ts = args["ts"].as_i64().unwrap_or_else(wall_clock);
+            let speaker = args["speaker"].as_str().filter(|s| !s.trim().is_empty());
             let mem = &mut state.memory;
-            let (report, dropped) = mem.observe_extracted(facts, ts);
+            // free text goes to the extractor when one is available; without
+            // one, every line must be line protocol (the old behaviour)
+            let free_text = mem.extractor().enabled();
+            let (report, dropped, prose) = if free_text {
+                let r = mem.observe_text(facts, ts, speaker);
+                (r.report, r.dropped, Some((r.prose_lines, r.prose_facts)))
+            } else {
+                let (report, dropped) = mem.observe_extracted(facts, ts);
+                (report, dropped, None)
+            };
             // Facts keep `ts` as their valid-time (VF), but the derived view
             // is as of the present: backdating an episode must not rewind
             // `current/3` past everything already asserted.
@@ -311,6 +325,12 @@ fn tool_call(state: &mut State, name: &str, args: &J, path: Option<&str>) -> Res
                 report.noop,
                 report.escalations.len()
             );
+            if let Some((lines, found)) = prose.filter(|(l, _)| *l > 0) {
+                out.push_str(&format!("\nfree text: {lines} line(s) -> {found} fact(s)"));
+                if let Some(e) = mem.extractor().error() {
+                    out.push_str(&format!(" — extractor failed to load: {}", truncate(e, 200)));
+                }
+            }
             for e in report.escalations.iter().take(3) {
                 out.push_str(&format!("\nescalation: {e}"));
             }
@@ -330,6 +350,12 @@ fn tool_call(state: &mut State, name: &str, args: &J, path: Option<&str>) -> Res
                 }
                 if dropped.len() > 5 {
                     out.push_str(&format!("\n  (+{} more)", dropped.len() - 5));
+                }
+                if !free_text {
+                    out.push_str(&format!(
+                        "\n(free-text extraction is {}; write facts as 'S --rel--> O')",
+                        mem.extractor().status()
+                    ));
                 }
             }
             Ok(out)

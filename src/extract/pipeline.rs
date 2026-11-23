@@ -178,6 +178,9 @@ pub enum RejectReason {
     /// The same sentence gave this fact in the other direction with stronger
     /// evidence (see SPEC-7.1-O4).
     Reversed,
+    /// Subject and object linked to the same entity ("Bob reports to
+    /// Robert" with both names linking to `person:bob`).
+    SelfLoop,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -446,12 +449,12 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
                     reason: RejectReason::Unresolved,
                 });
             }
-            let valid = |m: &Mention| {
-                m.start <= m.end
-                    && sentence.is_char_boundary(m.start)
-                    && sentence.is_char_boundary(m.end)
-                    && m.end <= sentence.len()
-            };
+            // a non-empty byte range of this sentence (`get` checks bounds
+            // and char boundaries, and never panics)
+            let valid = |m: &Mention| m.start < m.end && sentence.get(m.start..m.end).is_some();
+            // NegEx reads the span and the linker reads the text: make them
+            // the same, so negation and linking judge the same words
+            let at_span = |m: &Mention| Mention { text: sentence[m.start..m.end].to_string(), ..m.clone() };
             // keep the relations that survive the cheap checks, then link
             // their mentions in one linker call per sentence
             let mut kept: Vec<(RawRelation, String, bool)> = Vec::new();
@@ -464,10 +467,13 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
                     self.reject(ep, r, RejectReason::BadSpan);
                     continue;
                 }
-                if r.score < self.min_score {
+                // written so that a NaN score fails the check: `NaN < x` is
+                // false, so `r.score < self.min_score` would let NaN through
+                if !(r.score >= self.min_score) || !r.score.is_finite() {
                     self.reject(ep, r, RejectReason::LowScore);
                     continue;
                 }
+                let r = &RawRelation { subject: at_span(&r.subject), object: at_span(&r.object), ..r.clone() };
                 let span = |m: &Mention| (m.start, m.end);
                 let others: Vec<(usize, usize)> = a
                     .mentions
@@ -518,6 +524,16 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
                 };
                 if let Some(p) = entity_token_problem(sid).or_else(|| entity_token_problem(oid)) {
                     self.reject(ep, r, RejectReason::BadEntity(p));
+                    continue;
+                }
+                // `f32::min` ignores a NaN argument, so a NaN link score would
+                // silently drop out of the confidence: treat it as no link
+                if !ss.is_finite() || !os.is_finite() {
+                    self.reject(ep, r, RejectReason::LowScore);
+                    continue;
+                }
+                if sid == oid {
+                    self.reject(ep, r, RejectReason::SelfLoop);
                     continue;
                 }
                 let (sid, oid) = if *inverse { (oid, sid) } else { (sid, oid) };
@@ -577,8 +593,13 @@ impl<B: RelationBackend, L: EntityLinker> Extractor for GlinerExtractor<B, L> {
             return cached.clone();
         }
         self.calls += 1;
+        let failures = self.failures;
         let out = self.run(episode);
-        self.seen.insert(episode.id.clone(), out.clone());
+        // memoize successes only: a failed turn (backend error) is retried
+        // the next time the episode is extracted, instead of staying empty
+        if self.failures == failures {
+            self.seen.insert(episode.id.clone(), out.clone());
+        }
         out
     }
 
