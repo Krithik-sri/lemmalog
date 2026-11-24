@@ -107,9 +107,28 @@ Task prompts then stay domain-specific and reference the skill in one line.
 ## MCP server: use from Claude Code or Kimi CLI
 
 ```sh
-cargo build --release --features mcp,gliner,glinker   # LLM-free extraction built in
-cargo build --release --features mcp                  # line protocol only
+cargo build --release --features mcp,glinker                 # LLM-free extraction (default)
+cargo build --release --no-default-features --features mcp   # line protocol only
 ```
+
+GLiNER extraction is a default feature, running on Intel OpenVINO. The
+build needs no network access: ONNX Runtime is loaded at run time, from
+`ORT_DYLIB_PATH`, else `~/.lemmalog/lib/libonnxruntime.so` (`.dylib` on
+macOS), else next to the binary or the system library path.
+`scripts/install.sh` puts it in `~/.lemmalog/lib`: on Linux x86_64, Intel's
+onnxruntime-openvino 1.20.0 build (ONNX Runtime with the OpenVINO execution
+provider and OpenVINO's CPU/GPU/NPU plugins), elsewhere Microsoft's plain
+ONNX Runtime 1.20.1 (`LEMMALOG_ORT_BUILD=cpu` for that everywhere).
+
+The models run on OpenVINO when the loaded ONNX Runtime has its provider,
+on device `LEMMALOG_OPENVINO_DEVICE` (default `AUTO:GPU,CPU`: an Intel GPU
+if present, else CPU; `CPU`, `GPU`, `NPU` pick one, and a device that isn't
+there fails the load). With a plain ONNX Runtime, or `LEMMALOG_ORT_EP=cpu`,
+they run on ONNX Runtime's CPU provider. The server logs which one at the
+first model load. If ONNX Runtime can't be loaded at all, observe says so
+and keeps accepting line protocol; nothing crashes.
+`--no-default-features --features gliner-download,…` builds the old way,
+downloading ONNX Runtime at build time and linking it.
 
 **Extraction is LLM-free by default.** `lemmalog_observe` takes
 line-protocol facts (`S --rel--> O`) and plain sentences in the same
@@ -137,10 +156,6 @@ hand. If the model is missing, or the binary was built without
 `gliner`, or `LEMMALOG_EXTRACTOR=off`, observe accepts line protocol only
 and says why. `lemmalog-bench ingest` extracts the same way;
 `LEMMALOG_EXTRACTOR=llm` switches it back to Claude.
-
-`gliner` is not a default Cargo feature: its ONNX Runtime dependency
-downloads a native library at build time, which would make every plain
-`cargo build` need that network access.
 
 Register the server (stdio JSON-RPC, 12 tools):
 

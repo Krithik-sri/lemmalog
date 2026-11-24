@@ -71,6 +71,85 @@ pub fn relation_prompt_offset() -> usize {
     })
 }
 
+/// Which ONNX Runtime execution provider to ask for, from
+/// `LEMMALOG_ORT_EP`: `openvino` (the default in builds with the `openvino`
+/// feature) or `cpu`. `LEMMALOG_OPENVINO_DEVICE` picks the OpenVINO device:
+/// `AUTO:GPU,CPU` (the default: an Intel GPU if there is one, else CPU),
+/// `CPU`, `GPU`, `NPU`, or any OpenVINO device string. A device that is not
+/// present (`GPU` on a machine without one) fails the model load; the AUTO
+/// default does not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExecutionProvider {
+    Cpu,
+    OpenVino { device: String },
+}
+
+impl ExecutionProvider {
+    pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
+        let default = if cfg!(feature = "openvino") { "openvino" } else { "cpu" };
+        let ep = var("LEMMALOG_ORT_EP").filter(|v| !v.trim().is_empty()).unwrap_or_else(|| default.into());
+        match ep.trim().to_lowercase().as_str() {
+            "cpu" => Ok(ExecutionProvider::Cpu),
+            "openvino" if cfg!(feature = "openvino") => Ok(ExecutionProvider::OpenVino {
+                device: var("LEMMALOG_OPENVINO_DEVICE").filter(|d| !d.trim().is_empty()).unwrap_or_else(|| "AUTO:GPU,CPU".into()),
+            }),
+            "openvino" => Err("LEMMALOG_ORT_EP=openvino, but lemmalog was built without the `openvino` feature".into()),
+            other => Err(format!("unknown LEMMALOG_ORT_EP={other:?} (use openvino or cpu)")),
+        }
+    }
+}
+
+/// The execution provider the models run on, once a model has loaded:
+/// "OpenVINO (CPU)", "CPU", or "CPU (...why OpenVINO is not used)".
+pub fn active_execution_provider() -> Option<&'static str> {
+    ACTIVE_EP.get().map(String::as_str)
+}
+
+static ACTIVE_EP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Runtime parameters for the models: the execution provider from the
+/// environment. OpenVINO is registered without `error_on_failure`, so an
+/// ONNX Runtime without the OpenVINO provider runs on CPU instead; which one
+/// is in use is reported by [`active_execution_provider`] and on stderr.
+fn runtime_parameters() -> Result<RuntimeParameters, String> {
+    let ep = ExecutionProvider::from_vars(|k| std::env::var(k).ok())?;
+    match ep {
+        ExecutionProvider::Cpu => {
+            let _ = ACTIVE_EP.set("CPU".into());
+            Ok(RuntimeParameters::default())
+        }
+        #[cfg(feature = "openvino")]
+        ExecutionProvider::OpenVino { device } => {
+            use ort::execution_providers::{ExecutionProvider as _, OpenVINOExecutionProvider};
+            // the ONNX Runtime environment must exist before a provider is
+            // queried (otherwise: "Attempt to use DefaultLogger but none has
+            // been registered"); a second init is a no-op error, ignored
+            static INIT: std::sync::Once = std::sync::Once::new();
+            INIT.call_once(|| {
+                let _ = ort::init().with_name("lemmalog").commit();
+            });
+            let ov = OpenVINOExecutionProvider::default().with_device_type(&device);
+            // register OpenVINO only where this ONNX Runtime has it: a plain
+            // build fails registration (no providers_shared library)
+            let (active, params) = match ov.is_available() {
+                Ok(true) => {
+                    (format!("OpenVINO ({device})"), RuntimeParameters::default().with_execution_providers([ov.build()]))
+                }
+                Ok(false) => (
+                    "CPU (this ONNX Runtime has no OpenVINO provider; run scripts/install.sh or set ORT_DYLIB_PATH to an onnxruntime-openvino build)".into(),
+                    RuntimeParameters::default(),
+                ),
+                Err(e) => (format!("CPU (OpenVINO check failed: {e})"), RuntimeParameters::default()),
+            };
+            eprintln!("lemmalog: ONNX Runtime execution provider: {active}");
+            let _ = ACTIVE_EP.set(active);
+            Ok(params)
+        }
+        #[cfg(not(feature = "openvino"))]
+        ExecutionProvider::OpenVino { .. } => unreachable!("from_vars rejects openvino without the feature"),
+    }
+}
+
 /// One model per model file for the whole process. The relation pipelines
 /// borrow the model for `'static`, so a loaded model is never freed; sharing
 /// it means building many backends (eval notebooks, tests) costs one model
@@ -84,7 +163,7 @@ fn shared_model(model_path: &str) -> Result<&'static Model, String> {
         return Ok(*m);
     }
     let m: &'static Model =
-        Box::leak(Box::new(Model::new(model_path, RuntimeParameters::default()).map_err(|x| x.to_string())?));
+        Box::leak(Box::new(Model::new(model_path, runtime_parameters()?).map_err(|x| x.to_string())?));
     models.insert(model_path.to_string(), m);
     Ok(m)
 }
@@ -263,6 +342,26 @@ impl RelationBackend for GlineBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn execution_provider_comes_from_the_environment() {
+        let vars = |kv: &'static [(&'static str, &'static str)]| {
+            move |k: &str| kv.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+        };
+        let default = ExecutionProvider::from_vars(vars(&[])).unwrap();
+        if cfg!(feature = "openvino") {
+            assert_eq!(default, ExecutionProvider::OpenVino { device: "AUTO:GPU,CPU".into() });
+            assert_eq!(
+                ExecutionProvider::from_vars(vars(&[("LEMMALOG_ORT_EP", "OpenVINO"), ("LEMMALOG_OPENVINO_DEVICE", "NPU")])).unwrap(),
+                ExecutionProvider::OpenVino { device: "NPU".into() }
+            );
+        } else {
+            assert_eq!(default, ExecutionProvider::Cpu);
+            assert!(ExecutionProvider::from_vars(vars(&[("LEMMALOG_ORT_EP", "openvino")])).is_err());
+        }
+        assert_eq!(ExecutionProvider::from_vars(vars(&[("LEMMALOG_ORT_EP", "cpu")])).unwrap(), ExecutionProvider::Cpu);
+        assert!(ExecutionProvider::from_vars(vars(&[("LEMMALOG_ORT_EP", "cuda")])).is_err());
+    }
 
     #[test]
     fn prompt_offset_matches_the_gline_rs_prompt() {
