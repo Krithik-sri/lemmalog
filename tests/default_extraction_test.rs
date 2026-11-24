@@ -281,35 +281,66 @@ fn observe_text_with_extraction_off_still_takes_protocol_lines() {
     assert_eq!((r.prose_lines, r.prose_facts, r.report.added), (1, 0, 1));
 }
 
-// ------------------------------------------------------ NegEx: known gaps
+// ------------------------------------------- NegEx: gaps from the review
 
-/// Sentences NegEx gets wrong today (from the extraction review). Tracked
-/// here so a fix can be checked off; run with `--ignored`.
+// obligation: SPEC-7.1-O1
 #[test]
-#[ignore = "known NegEx gaps; see the extraction review"]
-fn negex_known_gaps() {
+fn negex_subject_side_aside_adverbs_relative_clauses_and_ordinary_left() {
     // (sentence, subject, object, other mentions, really negated?)
     let cases: &[(&str, &str, &str, &[&str], bool)] = &[
+        // negation on the subject side
         ("Neither Bob nor Dana works at Acme.", "Bob", "Acme", &["Dana"], true),
         ("Neither Bob nor Dana works at Acme.", "Dana", "Acme", &["Bob"], true),
         ("Not Bob but Dana works at Acme.", "Bob", "Acme", &["Dana"], true),
+        ("Not Bob but Dana works at Acme.", "Dana", "Acme", &["Bob"], false),
+        ("Dana, not Bob, works at Acme.", "Bob", "Acme", &["Dana"], true),
+        ("Dana, not Bob, works at Acme.", "Dana", "Acme", &["Bob"], false),
+        ("Not only Bob works at Acme.", "Bob", "Acme", &[], false),
+        // an adverb in an aside or right after the trigger keeps the scope
         ("Bob doesn't, however, work at Acme.", "Bob", "Acme", &[], true),
         ("Bob does not now work at Acme.", "Bob", "Acme", &[], true),
-        ("Bob dislikes sushi.", "Bob", "sushi", &[], true),
-        ("Bob hates Acme.", "Bob", "Acme", &[], true),
+        ("Bob quit and now works at Acme.", "Bob", "Acme", &[], false),
+        ("Bob doesn't, I think, still work at Acme.", "Bob", "Acme", &[], true),
+        ("Bob quit, and still works at Acme.", "Bob", "Acme", &[], false),
+        ("Bob left Initech; now he works at Acme.", "Bob", "Acme", &["Initech"], false),
+        // a relative clause owns its post-trigger
         ("Bob works at Acme, which is not true of Dana.", "Bob", "Acme", &["Dana"], false),
+        ("Bob works at Acme no more.", "Bob", "Acme", &[], true),
+        // "left" + determiner + non-membership noun is not cessation
         ("Bob left his laptop at Acme.", "Bob", "Acme", &[], false),
+        ("Bob left his job at Acme.", "Bob", "Acme", &[], true),
+        ("Bob left the company Acme.", "Bob", "Acme", &[], true),
+        ("Bob left Acme last year.", "Bob", "Acme", &[], true),
+        // plural pseudo-trigger
         ("Bob has no doubts and works at Acme.", "Bob", "Acme", &[], false),
     ];
     let n = NegEx::default();
-    let wrong: Vec<&str> = cases
+    let wrong: Vec<(&str, &str)> = cases
         .iter()
         .filter(|(s, subj, obj, others, gold)| {
             let o = s.find(obj).unwrap();
-            let others: Vec<(usize, usize)> = others.iter().map(|x| { let i = s.find(x).unwrap(); (i, i + x.len()) }).collect();
-            n.negated_with(s, (o, o + obj.len()), s.find(subj).unwrap(), &others) != *gold
+            let os: Vec<(usize, usize)> = others.iter().map(|x| { let i = s.find(x).unwrap(); (i, i + x.len()) }).collect();
+            n.negated_with(s, (o, o + obj.len()), s.find(subj).unwrap(), &os) != *gold
         })
-        .map(|c| c.0)
+        .map(|c| (c.0, c.1))
         .collect();
-    assert!(wrong.is_empty(), "NegEx still wrong on: {wrong:#?}");
+    assert!(wrong.is_empty(), "NegEx wrong on: {wrong:#?}");
+}
+
+// obligation: SPEC-7.1-O1
+#[test]
+fn dislike_verbs_contradict_likes() {
+    let backend = FixtureBackend::new()
+        .relation("Bob", "person", "likes", "sushi", "food", 0.9)
+        .relation("Dana", "person", "likes", "tea", "food", 0.9);
+    let mut x = GlinerExtractor::new(backend, NameLinker);
+    for s in ["Bob dislikes sushi.", "Bob hates sushi.", "Bob can't stand sushi."] {
+        assert!(x.extract(&ep(s, s)).is_empty(), "{s}");
+        assert_eq!(x.rejected().last().unwrap().reason, RejectReason::Negated);
+    }
+    assert_eq!(triples(&x.extract(&ep("d", "Dana likes tea."))), vec![("Dana", "likes", "tea")]);
+    // only `likes` is contradicted: "hates working at" says nothing about works_at
+    let backend = FixtureBackend::new().relation("Bob", "person", "works at", "Acme", "organization", 0.9);
+    let mut x = GlinerExtractor::new(backend, NameLinker);
+    assert_eq!(triples(&x.extract(&ep("w", "Bob hates working at Acme."))), vec![("Bob", "works_at", "Acme")]);
 }

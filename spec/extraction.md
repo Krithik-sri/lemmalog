@@ -49,8 +49,20 @@ obligations:
       unless it is coordinated with the object ("Acme, Initech or Globex").
       A pre-negation trigger inside a comma-enclosed aside after the subject
       ("Bob, who has no car, works at Acme") does not govern the object.
+      "neither", "nor" or "not" directly before the subject negates the
+      relation ("Neither Bob nor Dana works at Acme"; "Not Bob but Dana",
+      for Bob). An adverbial termination term ("however", "now", "still")
+      does not end a scope inside a comma-enclosed aside (", however,") or
+      directly after a trigger, aside or not ("does not now work"). A
+      relative pronoun ("which", "who") between object and post-trigger
+      ends the post-trigger's scope ("works at Acme, which is not true of
+      Dana"). "left" followed by a determiner and a noun that is not a job
+      or an organisation ("left his laptop at Acme") is not cessation; "left
+      his job", "left the company" are. A likes relation with a dislike
+      verb ("dislikes", "hates", "can't stand") between subject and object
+      is also rejected as Negated.
       Pseudo-triggers do not negate: phrases such as "not only" and
-      "no doubt", negated-positive idioms ("doesn't mind", "didn't
+      "no doubt(s)", negated-positive idioms ("doesn't mind", "didn't
       hesitate") and double negatives ("never stopped", "hasn't left").
       On the labelled sets tests/negex_tuning.tsv and tests/negex_heldout.tsv
       NegEx keeps MCC at or above 0.90 and 0.85.
@@ -59,6 +71,7 @@ obligations:
     scope:
       - src/extract/negex.rs::negated
       - src/extract/negex.rs::negated_with
+      - src/extract/negex.rs::dislikes_between
       - src/extract/pipeline.rs::run
   - id: SPEC-7.1-O2
     says: >
