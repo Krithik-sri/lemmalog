@@ -28,7 +28,8 @@ line-protocol facts about the same entity.
 The obligations below are what this change promises. Each one has
 tagged Rust tests (`// obligation: <id>`) under `tests/`. `obligations.lock`
 on `main` pins the obligations and the tests, so a later PR cannot weaken
-them unnoticed.
+them unnoticed: CI runs `scripts/check-obligations.py`, which fails while
+the lock is stale, and the approver re-locks with its `build` mode.
 
 ## 7.1 Obligations
 
