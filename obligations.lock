@@ -1,8 +1,8 @@
 {
-  "version": 2,
+  "version": 3,
   "approver": "Dhanesh",
-  "criteria_commit": "02e9f8ac8c85d384f406beb8e3c5867aaa6676f2",
-  "obligations_digest": "a549906d4cca1957940785c58a8d3de56fbb8a6087bf4d9273eeaff944e66943",
+  "criteria_commit": "87f308e0aac5e2eae5c7b284ad66a05f9077f3c2",
+  "obligations_digest": "f4bd4f0569cd13d033de03ee61f99de4f228baae9c4af365af0d627ee49b9f72",
   "entries": [
     {
       "obligation": "SPEC-7.1-O1",
@@ -367,6 +367,265 @@
       "name": "out_of_range_span_does_not_panic_the_linker",
       "lang": "rust",
       "hash": "2580a5f888776c68d0b3cebb7965c55e073bd1e95afeb3c939deb051703fcca1"
+    }
+  ],
+  "helpers": [
+    {
+      "path": "tests/default_extraction_test.rs",
+      "item": "fn ep",
+      "hash": "be5c704f8bf6b3d958fac67563bf1c01ed07e9a17e342f79cf6290f1e99fffda"
+    },
+    {
+      "path": "tests/default_extraction_test.rs",
+      "item": "fn linker",
+      "hash": "206a2bf01148bdbc6968c146c115c7bb43bbff229d837a3dbbe2387eac2ba0f1"
+    },
+    {
+      "path": "tests/default_extraction_test.rs",
+      "item": "fn m",
+      "hash": "20db67b2f056ae3a6c584dc090c411d1f78074ee4ce29f2d95b251d35f7d4315"
+    },
+    {
+      "path": "tests/default_extraction_test.rs",
+      "item": "fn triples",
+      "hash": "639f244ba3db5c8f48e386ea0e3a241070c0eaf3c3663eadb0138bc62ee07152"
+    },
+    {
+      "path": "tests/default_extraction_test.rs",
+      "item": "impl EntityLinker for NanLinker",
+      "hash": "e106b3ed225f439cbaead353ae92cf1482fd3b5c838fe68290408bfc9ab00043"
+    },
+    {
+      "path": "tests/default_extraction_test.rs",
+      "item": "impl RelationBackend for Canned",
+      "hash": "118ff13af3e0b5d37075bba75af243906cc4891d97dfce996804dedb5b2dd6ca"
+    },
+    {
+      "path": "tests/default_extraction_test.rs",
+      "item": "impl RelationBackend for Flaky",
+      "hash": "3cb8a9440e04f84f87ec2b89b5915fd5d1a9cfbb3efcd2ad7a5be8284a275175"
+    },
+    {
+      "path": "tests/default_extraction_test.rs",
+      "item": "struct Canned",
+      "hash": "120aa8a8bbdb875edc5ec47092a7d71d0a25b87abe88d19a779ba5fcf347278f"
+    },
+    {
+      "path": "tests/default_extraction_test.rs",
+      "item": "struct Flaky",
+      "hash": "d90f0f4824f3237676dce49ac5d2c989bc208b029e02c54b028f109e83ac2cc2"
+    },
+    {
+      "path": "tests/default_extraction_test.rs",
+      "item": "struct NanLinker",
+      "hash": "8f8719ba0047e087acbb6da99277fec2cf0e2c93c58b7a627e63517b00b23068"
+    },
+    {
+      "path": "tests/extraction_followup_test.rs",
+      "item": "fn ep",
+      "hash": "6391600a6db3d3cdb869dfa55f9164d17cff99397f2d31c3886edc007533e460"
+    },
+    {
+      "path": "tests/extraction_followup_test.rs",
+      "item": "fn linker",
+      "hash": "a050db71bc065874b2b08adfa26fea6703a574460adbcedd1f6592043b174824"
+    },
+    {
+      "path": "tests/extraction_followup_test.rs",
+      "item": "fn mention",
+      "hash": "8f24ef503d1d51776c172822a032dc3e3b3ff9dbbc18bcdfed1b027832710ed3"
+    },
+    {
+      "path": "tests/extraction_followup_test.rs",
+      "item": "fn triples",
+      "hash": "639f244ba3db5c8f48e386ea0e3a241070c0eaf3c3663eadb0138bc62ee07152"
+    },
+    {
+      "path": "tests/extraction_followup_test.rs",
+      "item": "impl EntityLinker for Fallback",
+      "hash": "7522a951430a4f70f21b229d7e02b0d45945c264636b0598095f16233eeb3ed6"
+    },
+    {
+      "path": "tests/extraction_followup_test.rs",
+      "item": "impl EntityLinker for Low",
+      "hash": "baf7d554f1c7cc1a2b24491bb5ed8e84206ba12699ee74d8507551301ccce80a"
+    },
+    {
+      "path": "tests/extraction_followup_test.rs",
+      "item": "impl EntityLinker for Recording",
+      "hash": "c33dbad667ae3bce09f420a940936272b8359faef9f5b552d5b3eb0b403c8f09"
+    },
+    {
+      "path": "tests/extraction_followup_test.rs",
+      "item": "impl lemmalog::extract::RelationBackend for Canned",
+      "hash": "e0667949a16ddbdb902482276f33af7c9038a4d24b855dfb2e701672df29e789"
+    },
+    {
+      "path": "tests/extraction_followup_test.rs",
+      "item": "impl lemmalog::extract::RelationBackend for Failing",
+      "hash": "0853a7130489768c1434fd443d123d1b55f8263e53b75f97335be07cab0b4b8c"
+    },
+    {
+      "path": "tests/extraction_followup_test.rs",
+      "item": "struct Canned",
+      "hash": "a38a8ea384b0294c0f3a52d5f012c7d45ce14db9f0d3e74e0a3ef888888a3635"
+    },
+    {
+      "path": "tests/extraction_followup_test.rs",
+      "item": "struct Failing",
+      "hash": "28c148e28e27291a3c7447d3de1748d005369f8062c8e63d66a620a65287dab1"
+    },
+    {
+      "path": "tests/extraction_followup_test.rs",
+      "item": "struct Fallback",
+      "hash": "6c5aa91a708da7ae2ef798a714575e36725e12ed6f21b758da61c564e0e38003"
+    },
+    {
+      "path": "tests/extraction_followup_test.rs",
+      "item": "struct Low",
+      "hash": "05c96a8cc6f36b1bc10c44c1bc333792a7fc461bdeb3836a2b3987cb1dda9d51"
+    },
+    {
+      "path": "tests/extraction_followup_test.rs",
+      "item": "struct Recording",
+      "hash": "f622966c85684573b06f44548519bdd9441d6806727453be421c7255f09d7662"
+    },
+    {
+      "path": "tests/extraction_review_test.rs",
+      "item": "fn ep",
+      "hash": "6391600a6db3d3cdb869dfa55f9164d17cff99397f2d31c3886edc007533e460"
+    },
+    {
+      "path": "tests/extraction_review_test.rs",
+      "item": "fn linker",
+      "hash": "d84654a25e35e1b07840f80d195b1af49abe0542aee00b4c87047b270fb11f51"
+    },
+    {
+      "path": "tests/extraction_review_test.rs",
+      "item": "fn m",
+      "hash": "b4b1d0ecde0cb42a6ec36aac2d670b1dbe5e1416341114a76bb383237831dd92"
+    },
+    {
+      "path": "tests/extraction_review_test.rs",
+      "item": "fn negex_score",
+      "hash": "5c2fdb6cad7db23a4a5cddd3c5f3597df7182ac5df2aa77e091aac7d31ff0135"
+    },
+    {
+      "path": "tests/extraction_review_test.rs",
+      "item": "fn triples",
+      "hash": "639f244ba3db5c8f48e386ea0e3a241070c0eaf3c3663eadb0138bc62ee07152"
+    },
+    {
+      "path": "tests/extraction_review_test.rs",
+      "item": "impl RelationBackend for Canned",
+      "hash": "7f01dac610082db930b92d3527b849ab717ba58097048131d5621ef5e6dd2ad7"
+    },
+    {
+      "path": "tests/extraction_review_test.rs",
+      "item": "impl Score",
+      "hash": "fd6c9e5af66467875e9d4edebf571da59d67033a1b617e3f6237efcdfc935b08"
+    },
+    {
+      "path": "tests/extraction_review_test.rs",
+      "item": "struct Canned",
+      "hash": "120aa8a8bbdb875edc5ec47092a7d71d0a25b87abe88d19a779ba5fcf347278f"
+    },
+    {
+      "path": "tests/extraction_review_test.rs",
+      "item": "struct Score",
+      "hash": "2defd8211e96041bffbbb0819be927dda1ba375b4d1538c458bf57bf080bf708"
+    },
+    {
+      "path": "tests/extraction_test.rs",
+      "item": "fn ep",
+      "hash": "6391600a6db3d3cdb869dfa55f9164d17cff99397f2d31c3886edc007533e460"
+    },
+    {
+      "path": "tests/extraction_test.rs",
+      "item": "fn l0",
+      "hash": "d35d6df614a1cb3001a2d6aae019f3f3857d0477984ecbfe8f2e2c5c8d905719"
+    },
+    {
+      "path": "tests/extraction_test.rs",
+      "item": "fn linker",
+      "hash": "2d87376fc8b51017b5890f976b3cb33ccf8483676439fdbe16946e975b054952"
+    },
+    {
+      "path": "tests/extraction_test.rs",
+      "item": "fn mention",
+      "hash": "b05aad6a7cef090fd94fec7d13c02c64b2bed60a4de36195febe4246f015d199"
+    },
+    {
+      "path": "tests/extraction_test.rs",
+      "item": "fn negd",
+      "hash": "b34ee74439675f462f16e1c436c6199dc8f4aa7e447cf58d0b31d70965007b9e"
+    },
+    {
+      "path": "tests/extraction_test.rs",
+      "item": "fn t",
+      "hash": "2cd398e49aec3e581df4f42a181ba4fe3a08bf2a9830b1526d519ba4de120570"
+    },
+    {
+      "path": "tests/extraction_test.rs",
+      "item": "fn triples",
+      "hash": "fa24c9b154ec2f5665981955cd94dd9b0164ea82234aed95e45bbe0250d636fa"
+    },
+    {
+      "path": "tests/extraction_test.rs",
+      "item": "fn works",
+      "hash": "39667ec859bf1b6de3b834c6c332734b754ab6622873a5ef13c9eeb16b48e214"
+    },
+    {
+      "path": "tests/extraction_test.rs",
+      "item": "impl EntityLinker for Counting",
+      "hash": "fe3b0dafe6808d5059b38c0142f2a74b08cb60aa5b67828efffbcdc624e1eaa9"
+    },
+    {
+      "path": "tests/extraction_test.rs",
+      "item": "impl RelationBackend for Flaky",
+      "hash": "bdc5c438f4d204ad03a3a9a30fd7d646230401f1ca04c589f65c5fdace49051e"
+    },
+    {
+      "path": "tests/extraction_test.rs",
+      "item": "impl RelationBackend for Short",
+      "hash": "27fe621eb6aa02f4f3f87d7aba4ba8b7cef05187b7388fce5c651da43a241224"
+    },
+    {
+      "path": "tests/extraction_test.rs",
+      "item": "struct Counting",
+      "hash": "59ca300cd0d793896a6ad52f5c7791112bacb4f24df2eec79282f51acff38aa6"
+    },
+    {
+      "path": "tests/extraction_test.rs",
+      "item": "struct Flaky",
+      "hash": "0d8be9697d17e3c26638b4db40b78d2fbfd11cbab6166ebf00f22f7d48cd58e4"
+    },
+    {
+      "path": "tests/extraction_test.rs",
+      "item": "struct Short",
+      "hash": "8fd0f005fe8b9197cedd457abf61b5722a500c804720f5d8309b11ddcf167ddb"
+    },
+    {
+      "path": "tests/glinker_e2e_test.rs",
+      "item": "fn linker",
+      "hash": "763c83413af9bdd699e71b930a3028f0358cf35e743110c2b2380e486094b362"
+    },
+    {
+      "path": "tests/glinker_e2e_test.rs",
+      "item": "fn m",
+      "hash": "326600f0faf4ee8c5e7e02b85af99526313bf0191f7e9a55b7e35077aa323691"
+    }
+  ],
+  "fixtures": [
+    {
+      "obligation": "SPEC-7.1-O1",
+      "path": "tests/negex_heldout.tsv",
+      "hash": "ad12b8990e2a41ca7bc9ad27ef84253ea6fd332f6fcbff8da46efe867c8827c4"
+    },
+    {
+      "obligation": "SPEC-7.1-O1",
+      "path": "tests/negex_tuning.tsv",
+      "hash": "72419bbaca60d28a4ac3f616f45dcccf93a4cfbb36fb9ff132fafbe954e80e82"
     }
   ]
 }
