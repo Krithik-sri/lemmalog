@@ -8,13 +8,18 @@ license = "MIT"
 [dependencies]
 serde_json = { version = "1", optional = true }
 ureq = { version = "2", optional = true }
-# GLiNER inference in Rust (lib name `gliner`); pulls in ONNX Runtime via `ort`,
-# so it is optional and off by default.
-gline-rs = { git = "https://github.com/dhaneshkk/gline-rs", branch = "main", optional = true }
-orp = { version = "1.0.0", optional = true }
+# GLiNER inference in Rust (lib name `gliner`) on ONNX Runtime via `ort`.
+# Default features off everywhere ort is reached: ort's defaults download
+# ONNX Runtime at build time, and one crate keeping them makes every build
+# download. How ONNX Runtime is found is chosen by the gliner-* features.
+gline-rs = { git = "https://github.com/dhaneshkk/gline-rs", branch = "main", optional = true, default-features = false }
+orp = { version = "1.0.0", optional = true, default-features = false }
 composable = { version = "1.0.0", optional = true }
+# Only to select ort's OpenVINO execution provider (`openvino` feature); the
+# same version gline-rs and orp use, so one ort is built.
+ort = { version = "=2.0.0-rc.9", optional = true, default-features = false }
 # GLinker entity linking in Rust (lib name `glinker_rs`), in-process; same orp/ort pins as gline-rs.
-glinker-rs = { git = "https://github.com/dhaneshkk/glinker-rs", branch = "main", optional = true }
+glinker-rs = { git = "https://github.com/dhaneshkk/glinker-rs", branch = "main", optional = true, default-features = false }
 
 [[bin]]
 name = "lemmalog-mcp"
@@ -59,9 +64,37 @@ llm = ["dep:ureq", "dep:serde_json"]
 # MCP server binary (Model Context Protocol over stdio) for agent CLIs
 # (Claude Code, Kimi CLI, ...). Needs only serde_json.
 mcp = ["dep:serde_json"]
+# LLM-free extraction (gline-rs NER + relations) is on by default. The
+# default loads the ONNX Runtime shared library at run time, so building
+# needs no network access; see extract::setup for where the library is
+# looked for.
+default = ["openvino", "cuda"]
 # Model-based extraction without an LLM: gline-rs NER + relation extraction.
+# On its own it links an ONNX Runtime found at build time (ORT_LIB_LOCATION
+# or a system install); the two features below pick the usual modes.
 gliner = ["dep:gline-rs", "dep:orp", "dep:composable"]
-# Load the ONNX Runtime shared library at run time instead of downloading it at build time.
-gliner-load-dynamic = ["gliner", "gline-rs/load-dynamic"]
+# Load the ONNX Runtime shared library at run time (the default).
+gliner-load-dynamic = ["gliner", "gline-rs/load-dynamic", "orp/load-dynamic", "glinker-rs?/load-dynamic"]
+# Run GLiNER on Intel OpenVINO (CPU, GPU or NPU) when the loaded ONNX Runtime
+# has the OpenVINO execution provider (scripts/install.sh fetches such a
+# build, onnxruntime-openvino 1.20.0); with a plain ONNX Runtime it falls
+# back to CPU. Selected at run time: LEMMALOG_ORT_EP, LEMMALOG_OPENVINO_DEVICE.
+openvino = ["gliner-load-dynamic", "dep:ort", "ort/openvino", "orp/openvino", "gline-rs/openvino", "glinker-rs?/openvino"]
+# Run GLiNER on an NVIDIA GPU when the loaded ONNX Runtime has the CUDA
+# execution provider and CUDA 12 + cuDNN 9 are installed (scripts/install.sh
+# takes such a build from the innoura/vg-ort image, ONNX Runtime 1.24.2);
+# otherwise the automatic choice moves on to OpenVINO, then CPU.
+cuda = ["gliner-load-dynamic", "dep:ort", "ort/cuda", "orp/cuda", "gline-rs/cuda", "glinker-rs?/cuda"]
+# Download ONNX Runtime at build time and link it (needs network access to
+# parcel.pyke.io while building; the old behaviour). Use it with
+# --no-default-features, or the default's load-dynamic stays on too.
+gliner-download = ["gliner", "gline-rs/download-binaries", "orp/download-binaries", "glinker-rs?/download-binaries"]
 # Entity linking with glinker-rs (in-process, no sidecar).
 glinker = ["dep:glinker-rs", "dep:serde_json"]
+
+# crates.io orp 1.0.0 turns on ort's build-time download itself; the fork
+# makes it a feature (dhaneshkk/orp#1). gline-rs and glinker-rs patch it the
+# same way, but [patch] applies only at the root of a build, so it is
+# repeated here.
+[patch.crates-io]
+orp = { git = "https://github.com/dhaneshkk/orp", branch = "main" }

@@ -396,7 +396,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -429,7 +429,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -542,7 +542,7 @@ dependencies = [
 [[package]]
 name = "gline-rs"
 version = "1.1.0"
-source = "git+https://github.com/dhaneshkk/gline-rs?branch=main#f1f8923a7af972855909302a843063d958f69d95"
+source = "git+https://github.com/dhaneshkk/gline-rs?branch=main#9d38a0547a9253435eed5cb80d53b3f6d53dc4da"
 dependencies = [
  "composable",
  "csv",
@@ -557,7 +557,7 @@ dependencies = [
 [[package]]
 name = "glinker-rs"
 version = "0.1.0"
-source = "git+https://github.com/dhaneshkk/glinker-rs?branch=main#c29b4781658708b82b2ac2f14db47710e4db0a11"
+source = "git+https://github.com/dhaneshkk/glinker-rs?branch=main#9057a96e01841d195061ca9b43ae79a55150c506"
 dependencies = [
  "axum",
  "composable",
@@ -837,6 +837,7 @@ dependencies = [
  "gline-rs",
  "glinker-rs",
  "orp",
+ "ort",
  "serde_json",
  "ureq",
 ]
@@ -1072,8 +1073,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 [[package]]
 name = "orp"
 version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4988aa3d7fe73b735d283ce9ec2b2e881ca9178bceee750cf226a4cbf83f7d8"
+source = "git+https://github.com/dhaneshkk/orp?branch=main#53fe829239e706402237d25ae88650e7ec64e48f"
 dependencies = [
  "composable",
  "ndarray",
@@ -1323,7 +1323,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

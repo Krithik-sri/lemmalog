@@ -107,9 +107,35 @@ Task prompts then stay domain-specific and reference the skill in one line.
 ## MCP server: use from Claude Code or Kimi CLI
 
 ```sh
-cargo build --release --features mcp,gliner,glinker   # LLM-free extraction built in
-cargo build --release --features mcp                  # line protocol only
+cargo build --release --features mcp,glinker                 # LLM-free extraction (default)
+cargo build --release --no-default-features --features mcp   # line protocol only
 ```
+
+GLiNER extraction is a default feature, running on an NVIDIA GPU (CUDA),
+Intel OpenVINO or CPU. The build needs no network access: ONNX Runtime is
+loaded at run time, from `ORT_DYLIB_PATH`, else
+`~/.lemmalog/lib/libonnxruntime.so` (`.dylib` on macOS), else next to the
+binary or the system library path. `scripts/install.sh` puts one in
+`~/.lemmalog/lib` (`LEMMALOG_ORT_BUILD`, default `auto`):
+
+| Build | When `auto` picks it | What it is |
+|---|---|---|
+| `vg-ort` | an NVIDIA GPU is present (`nvidia-smi`) | ONNX Runtime 1.24.2 with the CUDA provider, from the `innoura/vg-ort:1.24.2` image (docker/podman) or a saved image tarball (`LEMMALOG_ORT_URL`); needs CUDA 12 and cuDNN 9 |
+| `openvino` | Linux x86_64 | Intel's onnxruntime-openvino 1.20.0 (OpenVINO provider and CPU/GPU/NPU plugins) |
+| `cpu` | otherwise | Microsoft's ONNX Runtime 1.20.1 |
+
+Each falls back to the next if it can't be fetched. At run time
+`LEMMALOG_ORT_EP` picks the execution provider: `auto` (default) uses CUDA
+if the loaded ONNX Runtime has it and CUDA/cuDNN load, else OpenVINO if it
+has that, else CPU; `cuda`, `openvino` or `cpu` force one (a forced one
+that can't be used fails the load). Devices: `LEMMALOG_CUDA_DEVICE`
+(default 0), `LEMMALOG_OPENVINO_DEVICE` (default `AUTO:GPU,CPU`: an Intel
+GPU if present, else CPU). The server logs the provider, and why an
+accelerator wasn't used, at the first model load. If ONNX Runtime can't be
+loaded at all, observe says so and keeps accepting line protocol; nothing
+crashes.
+`--no-default-features --features gliner-download,…` builds the old way,
+downloading ONNX Runtime at build time and linking it.
 
 **Extraction is LLM-free by default.** `lemmalog_observe` takes
 line-protocol facts (`S --rel--> O`) and plain sentences in the same
@@ -137,10 +163,6 @@ hand. If the model is missing, or the binary was built without
 `gliner`, or `LEMMALOG_EXTRACTOR=off`, observe accepts line protocol only
 and says why. `lemmalog-bench ingest` extracts the same way;
 `LEMMALOG_EXTRACTOR=llm` switches it back to Claude.
-
-`gliner` is not a default Cargo feature: its ONNX Runtime dependency
-downloads a native library at build time, which would make every plain
-`cargo build` need that network access.
 
 Register the server (stdio JSON-RPC, 12 tools):
 
