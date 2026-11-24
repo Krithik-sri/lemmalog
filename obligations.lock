@@ -1,8 +1,8 @@
 {
   "version": 2,
   "approver": "Dhanesh",
-  "criteria_commit": "bc5c197d25d94a748aa93d8a447c99da772162d3",
-  "obligations_digest": "4586aefb37196c125b90896b5ec2f65ea825f371e1eef786996943ad24ff1323",
+  "criteria_commit": "1167d391abaad055bc1c6c9df8cbe3272e8b8a0e",
+  "obligations_digest": "4e2b3a27873241a45daad37e5973b87801b0dbb82c80472408d43f65f6d789b5",
   "entries": [
     {
       "obligation": "SPEC-7.1-O1",
@@ -174,6 +174,34 @@
     },
     {
       "obligation": "SPEC-7.1-O3",
+      "path": "tests/default_extraction_test.rs",
+      "name": "failed_episode_is_retried_not_cached_empty",
+      "lang": "rust",
+      "hash": "dd752838fca1bca09d035d27a1392fd6ec8978a85de7ca2687d3fb6ea90b8237"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/default_extraction_test.rs",
+      "name": "infinite_relation_score_is_rejected",
+      "lang": "rust",
+      "hash": "5210d5157228174517b49b92a3a0db54e8f5aa11a225996f3b1c3d2942759ef6"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/default_extraction_test.rs",
+      "name": "nan_link_score_is_rejected",
+      "lang": "rust",
+      "hash": "a1d3bfcb2e4c812e57a425e92469de3bf8fcfba9272abaecc97fb737f9831c44"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/default_extraction_test.rs",
+      "name": "nan_relation_score_is_rejected",
+      "lang": "rust",
+      "hash": "7ecb9030be6edbe9ca5773b8987653d5221c5eea8b2954e938c3410c5ec8581f"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
       "path": "tests/extraction_followup_test.rs",
       "name": "backend_errors_keep_their_message",
       "lang": "rust",
@@ -237,6 +265,13 @@
     },
     {
       "obligation": "SPEC-7.1-O4",
+      "path": "tests/default_extraction_test.rs",
+      "name": "subject_and_object_linking_to_one_entity_is_a_self_loop",
+      "lang": "rust",
+      "hash": "19fa160b86c5a6f735cbd3c2edea23df8a743198a51d5accb49d31a93b35478b"
+    },
+    {
+      "obligation": "SPEC-7.1-O4",
       "path": "tests/extraction_followup_test.rs",
       "name": "both_manager_directions_keep_the_one_the_sentence_words",
       "lang": "rust",
@@ -276,6 +311,20 @@
       "name": "manager_relations_read_as_reports_to",
       "lang": "rust",
       "hash": "8a7c089e7c7dddb2c2f33702cc5e4e4529c9060b1d8c6e7bbc50f79f2f22b96f"
+    },
+    {
+      "obligation": "SPEC-7.1-O5",
+      "path": "tests/default_extraction_test.rs",
+      "name": "empty_span_is_a_bad_span",
+      "lang": "rust",
+      "hash": "9f7ebffb92883580e3fb43feea29fd58212f8aa3e0ff6a47df064c3e645f6ab9"
+    },
+    {
+      "obligation": "SPEC-7.1-O5",
+      "path": "tests/default_extraction_test.rs",
+      "name": "mention_text_is_taken_from_its_span",
+      "lang": "rust",
+      "hash": "384455077494ca1140963b5f6e9fdbee04d7e409398dae03a72119d1f0e19959"
     },
     {
       "obligation": "SPEC-7.1-O5",

@@ -41,6 +41,7 @@ impl RelationBackend for Canned {
 
 // ------------------------------------------------------------ review fixes
 
+// obligation: SPEC-7.1-O3
 #[test]
 fn nan_relation_score_is_rejected() {
     // `NaN < min_score` is false, and `f32::min` drops a NaN argument: the
@@ -51,6 +52,7 @@ fn nan_relation_score_is_rejected() {
     assert_eq!(x.rejected()[0].reason, RejectReason::LowScore);
 }
 
+// obligation: SPEC-7.1-O3
 #[test]
 fn infinite_relation_score_is_rejected() {
     let backend = FixtureBackend::new().relation("Bob", "person", "works at", "Acme", "organization", f32::INFINITY);
@@ -67,6 +69,7 @@ impl EntityLinker for NanLinker {
     }
 }
 
+// obligation: SPEC-7.1-O3
 #[test]
 fn nan_link_score_is_rejected() {
     let backend = FixtureBackend::new().relation("Bob", "person", "works at", "Acme", "organization", 0.9);
@@ -91,6 +94,7 @@ impl RelationBackend for Flaky {
     }
 }
 
+// obligation: SPEC-7.1-O3
 #[test]
 fn failed_episode_is_retried_not_cached_empty() {
     let mut x = GlinerExtractor::new(Flaky { fail: 1, calls: 0 }, linker());
@@ -105,6 +109,7 @@ fn failed_episode_is_retried_not_cached_empty() {
     assert_eq!(x.stats(), (2, 1));
 }
 
+// obligation: SPEC-7.1-O5
 #[test]
 fn mention_text_is_taken_from_its_span() {
     // the model's text says Initech, the span covers Acme: NegEx reads the
@@ -120,6 +125,7 @@ fn mention_text_is_taken_from_its_span() {
     assert_eq!(triples(&x.extract(&ep("e", s))), vec![("person:bob", "works_at", "org:acme")]);
 }
 
+// obligation: SPEC-7.1-O5
 #[test]
 fn empty_span_is_a_bad_span() {
     let r = RawRelation {
@@ -133,6 +139,7 @@ fn empty_span_is_a_bad_span() {
     assert_eq!(x.rejected()[0].reason, RejectReason::BadSpan);
 }
 
+// obligation: SPEC-7.1-O4
 #[test]
 fn subject_and_object_linking_to_one_entity_is_a_self_loop() {
     let backend = FixtureBackend::new().relation("Bob", "person", "reports to", "Robert", "person", 0.9);

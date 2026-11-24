@@ -26,8 +26,9 @@ whose canonical id is the normalised name, so extracted facts join
 line-protocol facts about the same entity.
 
 The obligations below are what this change promises. Each one has
-tagged Rust tests in `tests/extraction_test.rs`. `obligations.lock` on `main`
-pins the obligations and the tests, so a later PR cannot weaken them unnoticed.
+tagged Rust tests (`// obligation: <id>`) under `tests/`. `obligations.lock`
+on `main` pins the obligations and the tests, so a later PR cannot weaken
+them unnoticed.
 
 ## 7.1 Obligations
 
@@ -98,6 +99,7 @@ obligations:
     risk: medium
     scope:
       - src/extract/pipeline.rs::extract
+      - src/extract/pipeline.rs::run
       - src/extract/mod.rs
       - src/extract/gline.rs
   - id: SPEC-7.1-O4
@@ -111,8 +113,9 @@ obligations:
       object ("Sam reports to Priya") wins, then the one with the higher
       relation score, then the smaller triple; the other is reported with
       reason Reversed. A relation whose subject and object link to the same
-      entity produces no fact and is reported with reason SelfLoop. Link scores never decide the direction. Facts from
-      different sentences are not compared.
+      entity produces no fact and is reported with reason SelfLoop. Link
+      scores never decide the direction. Facts from different sentences are
+      not compared.
     kind: contract
     risk: high
     scope:
@@ -124,9 +127,10 @@ obligations:
       valid byte ranges of their own sentence, and a mention's text is the
       sentence text at its span, so negation and linking judge the same
       words. A relation with any other span produces no fact and is reported
-      with reason BadSpan; no span makes extraction panic. Sentences are not split inside numbers ("2.5"), after titles
-      ("Dr."), or after abbreviations and initials ("Corp.", "U.S.") followed
-      by a lower-case word, nor at an ellipsis followed by one.
+      with reason BadSpan; no span makes extraction panic. Sentences are not
+      split inside numbers ("2.5"), after titles ("Dr."), or after
+      abbreviations and initials ("Corp.", "U.S.") followed by a lower-case
+      word, nor at an ellipsis followed by one.
     kind: property
     risk: high
     scope:
