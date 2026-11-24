@@ -47,8 +47,8 @@ fn reason(r: &RejectReason) -> String {
 fn report(name: &str, c: &Confusion, rejected: &[Rejection], errors: &[(String, String)], detail: bool) {
     println!("\n== {name}");
     println!(
-        "TP={} TN={} FP={} FN={}  precision={:.3} recall={:.3}  MCC={:.3}",
-        c.tp, c.tn, c.fp, c.fn_, c.precision(), c.recall(), c.mcc()
+        "TP={} TN={} FP={} (spurious {}) FN={}  precision={:.3} recall={:.3}  MCC={:.3}  labelled-only MCC={:.3}",
+        c.tp, c.tn, c.fp, c.spurious, c.fn_, c.precision(), c.recall(), c.mcc(), c.labelled_mcc()
     );
     for (e, msg) in errors {
         println!("  backend error {e}: {msg}");
@@ -146,6 +146,8 @@ fn main() -> Result<(), String> {
     };
     let c = run("gold alias table (GLiNER + NegEx only)", &mut backend, &gold, gold.table_linker(), true);
     note(&c, &mut wrong);
+    // the same table, but an alias links only under its entity's GLiNER label
+    run("gold alias table, label-gated", &mut backend, &gold, gold.labelled_table_linker(), false);
     let exact = match &entities {
         Some(p) => Some(TableLinker::from_glinker_entities(p)?),
         None => None,

@@ -1,8 +1,8 @@
 {
   "version": 3,
   "approver": "Dhanesh",
-  "criteria_commit": "87f308e0aac5e2eae5c7b284ad66a05f9077f3c2",
-  "obligations_digest": "f4bd4f0569cd13d033de03ee61f99de4f228baae9c4af365af0d627ee49b9f72",
+  "criteria_commit": "7bb90d9c5ddf62af74f1c1b70f8e294b91f7bfab",
+  "obligations_digest": "d7a5b425ee01d37dc75eb95fd5bf56437b78f7416b450640f12e37a3356499f0",
   "entries": [
     {
       "obligation": "SPEC-7.1-O1",
@@ -278,6 +278,34 @@
       "hash": "0e746555c50f1a0626aa3555c50655107a47751c40a06a51a38785df96be4908"
     },
     {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/robustness_test.rs",
+      "name": "an_edited_episode_is_extracted_again",
+      "lang": "rust",
+      "hash": "436c987c65fb92ced3959e281656bc2f1512c21654b8800cabf84ccb3bbab742"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/robustness_test.rs",
+      "name": "cached_backend_is_bounded_and_answers_whole_batches",
+      "lang": "rust",
+      "hash": "9337289966c4bdc2c4518b928c5d2a6d394e959e9ed47fbcdcce4a2c776b0c58"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/robustness_test.rs",
+      "name": "memo_and_logs_are_bounded",
+      "lang": "rust",
+      "hash": "4306cbc1a76e45b2f90405082a5c10c23e67f5d51e01c11f4f75b5dee3edea62"
+    },
+    {
+      "obligation": "SPEC-7.1-O3",
+      "path": "tests/robustness_test.rs",
+      "name": "one_bad_sentence_costs_only_its_own_facts",
+      "lang": "rust",
+      "hash": "519795f801a092aa2978db89de252a2748513a7cdb1580e41e419975257c39fc"
+    },
+    {
       "obligation": "SPEC-7.1-O4",
       "path": "tests/default_extraction_test.rs",
       "name": "subject_and_object_linking_to_one_entity_is_a_self_loop",
@@ -367,6 +395,27 @@
       "name": "out_of_range_span_does_not_panic_the_linker",
       "lang": "rust",
       "hash": "2580a5f888776c68d0b3cebb7965c55e073bd1e95afeb3c939deb051703fcca1"
+    },
+    {
+      "obligation": "SPEC-7.1-O5",
+      "path": "tests/robustness_test.rs",
+      "name": "street_saint_junior_and_senior_split_correctly",
+      "lang": "rust",
+      "hash": "1b55af5cb16c645376e094068fb11600b089cb82121e13eaa921fae685feb9d2"
+    },
+    {
+      "obligation": "SPEC-7.1-O6",
+      "path": "tests/robustness_test.rs",
+      "name": "hedged_relations_produce_no_fact_and_negation_wins",
+      "lang": "rust",
+      "hash": "5e8cb0a21a003d7f4cfbb519492c2d076034722558a4796e0ba12ca9d80b8477"
+    },
+    {
+      "obligation": "SPEC-7.1-O6",
+      "path": "tests/robustness_test.rs",
+      "name": "modal_intent_and_conditional_relations_are_hedged",
+      "lang": "rust",
+      "hash": "605d614180c19f10a25c0bf597b8053695a397b23be3e4f42597f491936c42cc"
     }
   ],
   "helpers": [
@@ -614,6 +663,31 @@
       "path": "tests/glinker_e2e_test.rs",
       "item": "fn m",
       "hash": "326600f0faf4ee8c5e7e02b85af99526313bf0191f7e9a55b7e35077aa323691"
+    },
+    {
+      "path": "tests/robustness_test.rs",
+      "item": "fn ep",
+      "hash": "be5c704f8bf6b3d958fac67563bf1c01ed07e9a17e342f79cf6290f1e99fffda"
+    },
+    {
+      "path": "tests/robustness_test.rs",
+      "item": "fn triples",
+      "hash": "639f244ba3db5c8f48e386ea0e3a241070c0eaf3c3663eadb0138bc62ee07152"
+    },
+    {
+      "path": "tests/robustness_test.rs",
+      "item": "fn works",
+      "hash": "d73b47ad90285f733de60f1bb696da9444a2d9f3fdb01ce6970caddc22c9d9a4"
+    },
+    {
+      "path": "tests/robustness_test.rs",
+      "item": "impl RelationBackend for Poisoned",
+      "hash": "acb04475518a18960104a7b497a6986a81dba2e1b4d3eabdb2a576d6dadde9a7"
+    },
+    {
+      "path": "tests/robustness_test.rs",
+      "item": "struct Poisoned",
+      "hash": "f7964901bc0cf652714514761fd2fe311443f9c54395203a785b4528f36e20bd"
     }
   ],
   "fixtures": [

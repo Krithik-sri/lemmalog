@@ -122,18 +122,35 @@ impl<B: RelationBackend + ?Sized> RelationBackend for &mut B {
 pub struct CachedBackend<B: RelationBackend> {
     pub inner: B,
     cache: HashMap<String, SentenceAnalysis>,
+    /// Insertion order, for evicting the oldest entries.
+    order: std::collections::VecDeque<String>,
+    /// At most this many sentences stay cached (oldest evicted first).
+    /// Default [`CachedBackend::DEFAULT_CAPACITY`].
+    pub capacity: usize,
     /// Sentences sent to `inner`.
     pub misses: usize,
 }
 
 impl<B: RelationBackend> CachedBackend<B> {
+    pub const DEFAULT_CAPACITY: usize = 100_000;
+
     pub fn new(inner: B) -> Self {
-        CachedBackend { inner, cache: HashMap::new(), misses: 0 }
+        CachedBackend { inner, cache: HashMap::new(), order: Default::default(), capacity: Self::DEFAULT_CAPACITY, misses: 0 }
     }
 
     /// Forget every cached analysis (after changing how `inner` analyses).
     pub fn clear(&mut self) {
         self.cache.clear();
+        self.order.clear();
+    }
+
+    /// Sentences currently cached.
+    pub fn len(&self) -> usize {
+        self.cache.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cache.is_empty()
     }
 
     /// The cached model output for a sentence, if it was analysed.
@@ -145,20 +162,41 @@ impl<B: RelationBackend> CachedBackend<B> {
 impl<B: RelationBackend> RelationBackend for CachedBackend<B> {
     fn analyse(&mut self, sentences: &[String]) -> Result<Vec<SentenceAnalysis>, String> {
         let mut todo: Vec<String> = Vec::new();
+        let mut queued: std::collections::HashSet<&str> = Default::default();
         for s in sentences {
-            if !self.cache.contains_key(s) && !todo.contains(s) {
+            if !self.cache.contains_key(s) && queued.insert(s.as_str()) {
                 todo.push(s.clone());
             }
         }
+        // answer from this call's results, so eviction below cannot drop a
+        // sentence this call still needs
+        // in sentence order, so eviction order is deterministic
+        let mut fresh: Vec<(String, SentenceAnalysis)> = Vec::new();
         if !todo.is_empty() {
             let got = self.inner.analyse(&todo)?;
             if got.len() != todo.len() {
                 return Err("backend returned the wrong number of analyses".into());
             }
             self.misses += todo.len();
-            self.cache.extend(todo.into_iter().zip(got));
+            fresh = todo.into_iter().zip(got).collect();
         }
-        Ok(sentences.iter().map(|s| self.cache[s].clone()).collect())
+        let out = sentences
+            .iter()
+            .map(|s| fresh.iter().find(|(f, _)| f == s).map(|(_, a)| a).or_else(|| self.cache.get(s)).cloned().unwrap())
+            .collect();
+        for (s, a) in fresh {
+            self.order.push_back(s.clone());
+            self.cache.insert(s, a);
+        }
+        while self.cache.len() > self.capacity.max(1) {
+            match self.order.pop_front() {
+                Some(old) => {
+                    self.cache.remove(&old);
+                }
+                None => break,
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -181,6 +219,9 @@ pub enum RejectReason {
     /// Subject and object linked to the same entity ("Bob reports to
     /// Robert" with both names linking to `person:bob`).
     SelfLoop,
+    /// The relation is only possible, planned or conditional ("Bob might
+    /// join Acme", "If Bob joins Acme"), not asserted (see SPEC-7.1-O6).
+    Hedged,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -223,12 +264,17 @@ pub fn default_entity_labels() -> Vec<String> {
 
 /// Words that end in "." without ending a sentence when the next word is
 /// capitalised (titles, initials-style abbreviations).
-const TITLES: &[&str] = &["dr", "mr", "mrs", "ms", "prof", "st", "sr", "jr", "rev", "gen", "col", "capt", "lt", "sgt", "hon"];
+/// "st" is a title ("St. Louis") unless a capitalised word precedes it
+/// ("Main St."), when it is the street abbreviation; "jr"/"sr" follow a name,
+/// so they end a sentence when a capitalised word follows ("Bob Smith Jr.
+/// Dana ..."), like the abbreviations below.
+const TITLES: &[&str] = &["dr", "mr", "mrs", "ms", "prof", "rev", "gen", "col", "capt", "lt", "sgt", "hon"];
 /// Abbreviations that end a sentence only if the next word is capitalised.
 const ABBREVS: &[&str] = &[
     "inc", "corp", "ltd", "co", "llc", "plc", "bros", "dept", "univ", "vs", "etc", "e.g", "i.e",
     "approx", "no", "vol", "fig", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept",
     "oct", "nov", "dec", "mon", "tue", "wed", "thu", "fri", "sat", "sun", "u.s", "u.k", "a.m", "p.m",
+    "jr", "sr", "ave", "rd", "blvd",
 ];
 
 /// Split into sentences on `.`, `!`, `?` and newlines, keeping the
@@ -285,6 +331,11 @@ pub fn split_sentences(text: &str) -> Vec<String> {
             w.to_lowercase()
         };
         let only_dots = chars[i..j].iter().all(|c| *c == '.');
+        // "Main St." (street) vs "St. Louis" (saint): the word before "St"
+        let street = word == "st" && {
+            let before = &cur[..cur.len() - run - word.len()];
+            before.trim_end().rsplit(char::is_whitespace).next().and_then(|w| w.chars().next()).is_some_and(char::is_uppercase)
+        };
         let keep = if run == 1 && c == '.' {
             let in_number = prev.map_or(false, |p| p.is_ascii_digit()) && next.map_or(false, |n| n.is_ascii_digit());
             let single_letter = word.len() == 1 && word.chars().all(char::is_alphabetic)
@@ -292,7 +343,8 @@ pub fn split_sentences(text: &str) -> Vec<String> {
             in_number
                 || next.map_or(false, |n| !n.is_whitespace()) && next.map_or(false, |n| n.is_alphanumeric())
                 || TITLES.contains(&word.as_str())
-                || (ABBREVS.contains(&word.as_str()) || single_letter) && !next_upper
+                || word == "st" && !street
+                || (ABBREVS.contains(&word.as_str()) || single_letter || street) && !next_upper
         } else {
             // "..." before a lower-case word continues the sentence
             only_dots && run > 1 && !next_upper
@@ -343,7 +395,15 @@ pub struct GlinerExtractor<B: RelationBackend, L: EntityLinker> {
     relations: HashMap<String, (String, bool)>,
     /// Relations scoring below this are dropped.
     pub min_score: f32,
-    seen: HashMap<String, Vec<CandidateFact>>,
+    /// episode id -> (fingerprint of text + speaker, facts)
+    seen: HashMap<String, (u64, Vec<CandidateFact>)>,
+    seen_order: std::collections::VecDeque<String>,
+    /// At most this many episodes stay memoized (oldest evicted first).
+    /// Default [`GlinerExtractor::DEFAULT_MEMO_CAPACITY`].
+    pub memo_capacity: usize,
+    /// `rejected()` and `errors()` keep at most this many of the most recent
+    /// entries. Default [`GlinerExtractor::DEFAULT_LOG_CAPACITY`].
+    pub log_capacity: usize,
     rejected: Vec<Rejection>,
     calls: usize,
     failures: usize,
@@ -351,6 +411,9 @@ pub struct GlinerExtractor<B: RelationBackend, L: EntityLinker> {
 }
 
 impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
+    pub const DEFAULT_MEMO_CAPACITY: usize = 10_000;
+    pub const DEFAULT_LOG_CAPACITY: usize = 10_000;
+
     pub fn new(backend: B, linker: L) -> Self {
         GlinerExtractor {
             backend,
@@ -362,6 +425,9 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
                 .collect(),
             min_score: 0.5,
             seen: HashMap::new(),
+            seen_order: Default::default(),
+            memo_capacity: Self::DEFAULT_MEMO_CAPACITY,
+            log_capacity: Self::DEFAULT_LOG_CAPACITY,
             rejected: Vec::new(),
             calls: 0,
             failures: 0,
@@ -382,6 +448,20 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
 
     pub fn backend(&self) -> &B {
         &self.backend
+    }
+
+    /// Keep only the newest `log_capacity` rejections and errors. Trims in
+    /// batches (down to the capacity once a quarter over it), so the cost
+    /// per entry stays constant.
+    fn trim_logs(&mut self) {
+        let cap = self.log_capacity.max(1);
+        let slack = cap / 4;
+        if self.rejected.len() > cap + slack {
+            self.rejected.drain(..self.rejected.len() - cap);
+        }
+        if self.errors.len() > cap + slack {
+            self.errors.drain(..self.errors.len() - cap);
+        }
     }
 
     fn reject(&mut self, ep: &Episode, r: &RawRelation, reason: RejectReason) {
@@ -422,24 +502,41 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
         if sentences.is_empty() {
             return Vec::new();
         }
-        let analyses = match self.backend.analyse(&sentences) {
-            Ok(a) if a.len() == sentences.len() => a,
-            Ok(a) => {
-                self.failures += 1;
-                let msg = format!("backend returned {} analyses for {} sentences", a.len(), sentences.len());
-                self.errors.push((ep.id.clone(), msg));
-                return Vec::new(); // degraded turn: no facts, no poison
-            }
+        let reply = |r: Result<Vec<SentenceAnalysis>, String>, n: usize| match r {
+            Ok(a) if a.len() == n => Ok(a),
+            Ok(a) => Err(format!("backend returned {} analyses for {} sentences", a.len(), n)),
+            Err(e) => Err(e),
+        };
+        let analyses: Vec<Option<SentenceAnalysis>> = match reply(self.backend.analyse(&sentences), sentences.len()) {
+            Ok(a) => a.into_iter().map(Some).collect(),
             Err(e) => {
+                // one failure per episode, however many sentences failed
                 self.failures += 1;
                 self.errors.push((ep.id.clone(), e));
-                return Vec::new(); // degraded turn: no facts, no poison
+                if sentences.len() == 1 {
+                    self.trim_logs();
+                    return Vec::new(); // degraded turn: no facts, no poison
+                }
+                // a bad sentence must not cost the episode its other
+                // sentences: retry them one at a time
+                let mut out = Vec::with_capacity(sentences.len());
+                for (i, s) in sentences.iter().enumerate() {
+                    match reply(self.backend.analyse(std::slice::from_ref(s)), 1) {
+                        Ok(mut a) => out.push(a.pop()),
+                        Err(e) => {
+                            self.errors.push((ep.id.clone(), format!("sentence {}: {e}", i + 1)));
+                            out.push(None);
+                        }
+                    }
+                }
+                out
             }
         };
         // (subj, pred, obj) -> best confidence; BTreeMap keeps output order stable
         let mut facts: BTreeMap<(String, String, String), f64> = BTreeMap::new();
         let mut speaker: Option<Link> = None;
         for (sentence, a) in sentences.iter().zip(analyses) {
+            let Some(a) = a else { continue };
             for (subject, relation, object) in &a.unresolved {
                 self.rejected.push(Rejection {
                     episode: ep.id.clone(),
@@ -486,6 +583,10 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
                     || (pred == "likes" && super::negex::dislikes_between(sentence, span(&r.subject), span(&r.object)))
                 {
                     self.reject(ep, r, RejectReason::Negated);
+                    continue;
+                }
+                if self.negex.hedged_with(sentence, span(&r.object), r.subject.start, &others) {
+                    self.reject(ep, r, RejectReason::Hedged);
                     continue;
                 }
                 kept.push((r.clone(), pred, inverse));
@@ -545,7 +646,9 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
                 match found.get_mut(&key) {
                     Some(e) => {
                         e.2 = e.2.max(conf);
-                        if (cue, r.score) > (e.0, e.1) {
+                        // scores are finite here (checked above); total_cmp
+                        // keeps the order total, as the Lean model assumes
+                        if cue.cmp(&e.0).then(r.score.total_cmp(&e.1)).is_gt() {
                             (e.0, e.1, e.3) = (cue, r.score, r.clone());
                         }
                     }
@@ -564,9 +667,11 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
                 .filter(|((a, p, b), (c, f, _, _))| {
                     a != b
                         && found.get(&(b.clone(), p.clone(), a.clone())).map_or(false, |(c2, f2, _, _)| {
-                            let me = (*c, *f);
-                            let other = (*c2, *f2);
-                            me < other || (me == other && (a, b) > (b, a))
+                            match c.cmp(c2).then(f.total_cmp(f2)) {
+                                std::cmp::Ordering::Less => true,
+                                std::cmp::Ordering::Equal => (a, b) > (b, a),
+                                std::cmp::Ordering::Greater => false,
+                            }
                         })
                 })
                 .map(|(k, _)| k.clone())
@@ -582,6 +687,7 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
                 }
             }
         }
+        self.trim_logs();
         facts
             .into_iter()
             .map(|((subj, pred, obj), confidence)| CandidateFact { subj, pred, obj, confidence })
@@ -591,8 +697,12 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
 
 impl<B: RelationBackend, L: EntityLinker> Extractor for GlinerExtractor<B, L> {
     fn extract(&mut self, episode: &Episode) -> Vec<CandidateFact> {
-        if let Some(cached) = self.seen.get(&episode.id) {
-            return cached.clone();
+        // an edited episode (same id, new text or speaker) is extracted again
+        let print = fingerprint(episode);
+        if let Some((p, cached)) = self.seen.get(&episode.id) {
+            if *p == print {
+                return cached.clone();
+            }
         }
         self.calls += 1;
         let failures = self.failures;
@@ -600,7 +710,17 @@ impl<B: RelationBackend, L: EntityLinker> Extractor for GlinerExtractor<B, L> {
         // memoize successes only: a failed turn (backend error) is retried
         // the next time the episode is extracted, instead of staying empty
         if self.failures == failures {
-            self.seen.insert(episode.id.clone(), out.clone());
+            if self.seen.insert(episode.id.clone(), (print, out.clone())).is_none() {
+                self.seen_order.push_back(episode.id.clone());
+            }
+            while self.seen.len() > self.memo_capacity.max(1) {
+                match self.seen_order.pop_front() {
+                    Some(old) => {
+                        self.seen.remove(&old);
+                    }
+                    None => break,
+                }
+            }
         }
         out
     }
@@ -609,6 +729,17 @@ impl<B: RelationBackend, L: EntityLinker> Extractor for GlinerExtractor<B, L> {
     fn stats(&self) -> (usize, usize) {
         (self.calls, self.failures)
     }
+}
+
+/// What an episode's facts depend on besides its id: its text and speaker.
+/// `DefaultHasher::new()` has fixed keys, so this is stable within and
+/// across runs of one build.
+fn fingerprint(ep: &Episode) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    ep.text.hash(&mut h);
+    ep.speaker.hash(&mut h);
+    h.finish()
 }
 
 /// A backend that replays fixed analyses: for tests and offline replays.

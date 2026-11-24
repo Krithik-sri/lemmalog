@@ -88,6 +88,18 @@ impl Gold {
             t.entity(&e.id, None, &aliases)
         })
     }
+
+    /// [`table_linker`](Self::table_linker) that also requires each alias
+    /// to carry the entity's GLiNER label, as a typed entity database would:
+    /// a mention GLiNER typed wrongly ("Acme" as a person) does not link.
+    /// Scoring with both shows how much of the score rests on label-free
+    /// linking.
+    pub fn labelled_table_linker(&self) -> TableLinker {
+        self.entities.iter().fold(TableLinker::new(), |t, e| {
+            let aliases: Vec<&str> = e.aliases.iter().map(String::as_str).collect();
+            t.entity(&e.id, Some(&e.label), &aliases)
+        })
+    }
 }
 
 /// One wrong outcome, for error analysis.
@@ -105,8 +117,12 @@ pub enum Miss {
 pub struct Confusion {
     pub tp: usize,
     pub tn: usize,
+    /// False positives: asserted `-` triples plus spurious ones.
     pub fp: usize,
     pub fn_: usize,
+    /// The part of `fp` that is spurious (no gold line). Spurious triples
+    /// have no matching true negatives, so they are also reported apart.
+    pub spurious: usize,
     pub misses: Vec<Miss>,
 }
 
@@ -116,6 +132,16 @@ impl Confusion {
         let (tp, tn, fp, fn_) = (self.tp as f64, self.tn as f64, self.fp as f64, self.fn_ as f64);
         let d = ((tp + fp) * (tp + fn_) * (tn + fp) * (tn + fn_)).sqrt();
         if d == 0.0 { 0.0 } else { (tp * tn - fp * fn_) / d }
+    }
+
+    /// MCC over the labelled candidates only (`+` and `-` lines), leaving
+    /// out spurious triples. With [`mcc`](Self::mcc) it separates "gets the
+    /// labelled cases wrong" from "invents triples nobody labelled", which
+    /// the single number mixes: the set has no true negatives that match
+    /// spurious false positives.
+    pub fn labelled_mcc(&self) -> f64 {
+        let fp = self.fp - self.spurious;
+        Confusion { fp, spurious: 0, misses: Vec::new(), ..*self }.mcc()
     }
 
     pub fn precision(&self) -> f64 {
@@ -142,6 +168,7 @@ pub fn score<E: Extractor>(x: &mut E, gold: &Gold) -> Confusion {
         }
         for t in got.iter().filter(|t| !g.positive.contains(t) && !g.negative.contains(t)) {
             c.fp += 1;
+            c.spurious += 1;
             c.misses.push(Miss::Spurious(id.clone(), t.clone()));
         }
     }
