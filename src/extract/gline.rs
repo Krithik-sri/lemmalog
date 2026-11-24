@@ -45,8 +45,49 @@ type Rel = RelationPipeline<'static, RegexSplitter, HFTokenizer>;
 /// `gline-rs/src/model/input/relation/mod.rs`), private to that crate.
 pub const RELATION_PROMPT_PREFIX: &str = "Extract relationships between entities from the text: \n";
 /// Bytes between the start of the relation prompt and the sentence:
-/// gline-rs formats the prompt as `"{prefix} {text}"`.
+/// gline-rs formats the prompt as `"{prefix} {text}"`. This is what the
+/// pinned gline-rs does; [`relation_prompt_offset`] measures it from
+/// gline-rs itself, and that is what mapping uses.
 pub const RELATION_PROMPT_OFFSET: usize = RELATION_PROMPT_PREFIX.len() + 1;
+
+/// The offset of the sentence inside the relation prompt, measured once from
+/// the prompt gline-rs actually builds (`RelationInput::from_spans`), so a
+/// change to gline-rs's prompt format moves object spans with it instead of
+/// silently sending every object to the by-text fallback. Falls back to
+/// [`RELATION_PROMPT_OFFSET`] if gline-rs's prompt does not end with the
+/// sentence.
+pub fn relation_prompt_offset() -> usize {
+    static OFFSET: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *OFFSET.get_or_init(|| {
+        use gliner::model::input::relation::RelationInput;
+        let text = "Bob works at Acme.";
+        let spans = SpanOutput::new(vec![text.to_string()], vec![], vec![vec![]]);
+        let input = RelationInput::from_spans(spans, &RelationSchema::new());
+        input
+            .prompts
+            .first()
+            .and_then(|p| p.strip_suffix(text).map(str::len))
+            .unwrap_or(RELATION_PROMPT_OFFSET)
+    })
+}
+
+/// One model per model file for the whole process. The relation pipelines
+/// borrow the model for `'static`, so a loaded model is never freed; sharing
+/// it means building many backends (eval notebooks, tests) costs one model
+/// per file, not one per backend.
+fn shared_model(model_path: &str) -> Result<&'static Model, String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static MODELS: OnceLock<Mutex<HashMap<String, &'static Model>>> = OnceLock::new();
+    let mut models = MODELS.get_or_init(Default::default).lock().map_err(|_| "model cache poisoned".to_string())?;
+    if let Some(m) = models.get(model_path) {
+        return Ok(*m);
+    }
+    let m: &'static Model =
+        Box::leak(Box::new(Model::new(model_path, RuntimeParameters::default()).map_err(|x| x.to_string())?));
+    models.insert(model_path.to_string(), m);
+    Ok(m)
+}
 
 /// Extra object labels for the relaxed schema: person-to-person relations
 /// also accept an object GLiNER typed as an organization. GLiNER sometimes
@@ -63,8 +104,8 @@ pub fn has_subject_candidate(schema: &RelationSchema, classes: &[&str]) -> bool 
 pub struct GlineBackend {
     // The relation pipelines borrow their schemas and `Model::inference` ties
     // the pipeline lifetime to the model borrow, so both live for the
-    // process. A backend is built once per process; this leaks one model, on
-    // purpose.
+    // process: models are shared per file (`shared_model`), schemas (small)
+    // are leaked per backend.
     model: &'static Model,
     ner: Ner,
     rel: Rel,
@@ -117,8 +158,7 @@ impl GlineBackend {
         schema: RelationSchema,
     ) -> Result<Self, String> {
         let e = |x: Box<dyn std::error::Error + Send + Sync>| x.to_string();
-        let model: &'static Model =
-            Box::leak(Box::new(Model::new(model_path, RuntimeParameters::default()).map_err(e)?));
+        let model = shared_model(model_path)?;
         let schema: &'static RelationSchema = Box::leak(Box::new(schema));
         Ok(GlineBackend {
             model,
@@ -205,8 +245,8 @@ pub fn map_relations(sentence: &str, mentions: Vec<Mention>, rels: &[Relation]) 
                 label: r.class().to_string(),
                 object: r.object().to_string(),
                 object_span: a
-                    .checked_sub(RELATION_PROMPT_OFFSET)
-                    .zip(b.checked_sub(RELATION_PROMPT_OFFSET)),
+                    .checked_sub(relation_prompt_offset())
+                    .zip(b.checked_sub(relation_prompt_offset())),
                 score: r.probability(),
             }
         })
@@ -223,6 +263,18 @@ impl RelationBackend for GlineBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prompt_offset_matches_the_gline_rs_prompt() {
+        // measured from gline-rs's own prompt builder, not from our format
+        // string: if gline-rs changes its prompt, this fails
+        assert_eq!(relation_prompt_offset(), RELATION_PROMPT_OFFSET);
+        use gliner::model::input::relation::RelationInput;
+        let text = "Dana is the manager of Bob.";
+        let spans = SpanOutput::new(vec![text.to_string()], vec![], vec![vec![]]);
+        let p = &RelationInput::from_spans(spans, &RelationSchema::new()).prompts[0];
+        assert_eq!(&p[RELATION_PROMPT_OFFSET..], text);
+    }
 
     /// What gline-rs's relation decoder emits: a span over the prompt whose
     /// class is "<subject> <> <relation>".

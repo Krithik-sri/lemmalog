@@ -34,6 +34,12 @@
 //! dislike verb ("dislikes", "hates", "can't stand") between subject and
 //! object contradicts the relation.
 //!
+//! **Hedging** ([`NegEx::hedged_with`]) uses the same scope rules with its
+//! own triggers: modal and intent words before the object ("might", "will",
+//! "plans to", "is considering") and conditionals anywhere before it ("if",
+//! "whether"). A hedged relation is possible, planned or conditional, not
+//! asserted.
+//!
 //! Everything here is deterministic: the same text and spans always give the
 //! same answer, and nothing calls a model.
 
@@ -82,6 +88,17 @@ enum Kind {
     /// subject and governs everything up to a termination term.
     Sent,
     Term,
+    /// Modal or intent word ("might", "plans to"): hedges like a pre-trigger.
+    Hedge,
+    /// Conditional ("if", "whether"): hedges like a sentential trigger.
+    HedgeSent,
+}
+
+/// Which triggers a scope check looks at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Negation,
+    Hedge,
 }
 
 /// A matched trigger: token index range `[first, last]` and its kind.
@@ -146,6 +163,24 @@ const TERM: &[&str] = &[
     "but", "however", "although", "though", "yet", "except", "whereas", "instead",
     "now", "still", ".", ";", "!", "?", ":",
 ];
+/// Modal and intent words: the relation is possible or planned, not asserted.
+const HEDGE: &[&str] = &[
+    "might", "may", "could", "would", "should", "will", "shall", "maybe", "perhaps", "probably",
+    "possibly", "supposedly", "allegedly", "reportedly", "rumored", "rumoured",
+    "plans to", "planning to", "plan to", "planned to", "wants to", "want to", "wanted to",
+    "hopes to", "hoping to", "hope to", "hoped to", "intends to", "intend to", "intending to",
+    "aims to", "aiming to", "expects to", "expecting to", "is expected to", "about to",
+    "is going to", "are going to", "am going to", "was going to", "were going to", "going to",
+    "would like to", "considering", "is considering", "thinking of", "thinking about",
+    "applied to", "applying to", "applied for", "interviewing at", "interviewing with",
+    "interviewed at", "interviewed with", "trying to", "tries to", "tried to",
+];
+/// Conditionals: everything after them up to a termination term is hedged.
+const HEDGE_SENT: &[&str] = &[
+    "if", "whether", "unless", "in case", "suppose", "supposing", "assuming", "imagine",
+    "hypothetically",
+];
+
 /// Termination terms that are adverbs: inside a comma-enclosed aside
 /// (", however,") or straight after a trigger ("does not now work") they do
 /// not end a scope.
@@ -202,6 +237,8 @@ impl Default for NegEx {
         add(POST, Kind::Post);
         add(PRE, Kind::Pre);
         add(TERM, Kind::Term);
+        add(HEDGE, Kind::Hedge);
+        add(HEDGE_SENT, Kind::HedgeSent);
         // longest phrase first, so "no longer" beats "no" and "not only" beats
         // "not"; the sort is stable, so equal lengths keep list order
         // (pseudo before trigger)
@@ -263,15 +300,53 @@ impl NegEx {
         anchor: usize,
         others: &[(usize, usize)],
     ) -> bool {
+        self.governed(sentence, obj, anchor, others, Mode::Negation)
+    }
+
+    /// Is the relation with object span `obj` hedged: governed by a modal or
+    /// intent word ("might", "plans to") with the same scope rules as a
+    /// pre-negation trigger, or by a conditional ("if", "whether") before the
+    /// object with the scope of a sentential trigger? "May" written with a
+    /// capital inside a sentence is the month, not a modal.
+    pub fn hedged_with(
+        &self,
+        sentence: &str,
+        obj: (usize, usize),
+        anchor: usize,
+        others: &[(usize, usize)],
+    ) -> bool {
+        self.governed(sentence, obj, anchor, others, Mode::Hedge)
+    }
+
+    fn governed(
+        &self,
+        sentence: &str,
+        obj: (usize, usize),
+        anchor: usize,
+        others: &[(usize, usize)],
+        mode: Mode,
+    ) -> bool {
         let toks = tokenize(sentence);
         let Some(o_first) = toks.iter().position(|t| t.end > obj.0) else {
             return false;
         };
         let o_last = toks.iter().rposition(|t| t.start < obj.1).unwrap_or(o_first);
-        let hits = self.hits(&toks);
+        let mut hits = self.hits(&toks);
+        // "in May": a capitalised "May" past the first word is the month
+        hits.retain(|h| {
+            !(h.kind == Kind::Hedge
+                && h.first > 0
+                && toks[h.first].lower == "may"
+                && sentence[toks[h.first].start..].starts_with('M'))
+        });
+        let (pre, sent) = match mode {
+            Mode::Negation => (Kind::Pre, Kind::Sent),
+            Mode::Hedge => (Kind::Hedge, Kind::HedgeSent),
+        };
         let tok = |i: usize| toks.get(i).map_or("", |t| t.lower.as_str());
         // the last token of each trigger, for "does not now work"
-        let trigger_end = |i: usize| hits.iter().any(|h| matches!(h.kind, Kind::Pre | Kind::Sent) && h.last == i);
+        let trigger_end =
+            |i: usize| hits.iter().any(|h| matches!(h.kind, Kind::Pre | Kind::Sent | Kind::Hedge | Kind::HedgeSent) && h.last == i);
         let ends_scope = |h: &Hit| {
             if h.kind != Kind::Term {
                 return false;
@@ -320,8 +395,16 @@ impl NegEx {
         hits.iter().any(|h| match h.kind {
             // "Neither Bob nor Dana ...", "Not Bob but Dana ...": a trigger
             // directly before the subject negates the subject's relation
-            Kind::Pre if h.first == h.last && h.last + 1 == a_tok && a_tok < o_first && SUBJ.contains(&tok(h.first)) => true,
-            Kind::Pre => {
+            Kind::Pre
+                if mode == Mode::Negation
+                    && h.first == h.last
+                    && h.last + 1 == a_tok
+                    && a_tok < o_first
+                    && SUBJ.contains(&tok(h.first)) =>
+            {
+                true
+            }
+            k if k == pre => {
                 toks[h.first].start >= anchor
                     && h.last < o_first
                     && dist(h.last, o_first) <= self.window
@@ -331,14 +414,14 @@ impl NegEx {
                     // a comma-enclosed aside after the subject
                     && !(comma(a_tok, h.first) && comma(h.last, o_first))
             }
-            Kind::Post => {
+            Kind::Post if mode == Mode::Negation => {
                 h.first > o_last
                     && dist(o_last, h.first) <= self.window
                     && !terminated(o_last, h.first)
                     && !rel_clause(o_last, h.first)
                     && !blocked_post(h.first)
             }
-            Kind::Sent => h.last < o_first && !terminated(h.last, o_first),
+            k if k == sent => h.last < o_first && !terminated(h.last, o_first),
             _ => false,
         })
     }

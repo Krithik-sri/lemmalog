@@ -102,18 +102,27 @@ obligations:
       - src/extract/gline.rs
   - id: SPEC-7.1-O3
     says: >
-      Extraction is deterministic and memoized, and calls no LLM. The backend
-      runs at most once per episode id that it analysed successfully, and
-      extracting the same episode again returns identical facts. A failed
-      episode is not memoized: extracting it again retries the backend.
-      A relation with a NaN or infinite relation or link score is rejected
-      with reason LowScore. Output holds one fact per (subject, predicate,
-      object), with the highest confidence, sorted by that triple. A backend
-      error yields no facts, counts as a failure in stats(), and keeps its
-      message, with the episode id, in errors(). The GLiNER backend skips
-      relation extraction for a sentence with no entity the schema allows as
-      a subject (gline-rs rejects an empty label list) and still returns that
-      sentence's mentions.
+      Extraction is deterministic and memoized, and calls no LLM. The
+      backend runs at most once per episode (id, text and speaker) that
+      it analysed successfully, and extracting the same episode again
+      returns identical facts; an episode whose text or speaker changed
+      under the same id is extracted again. A failed episode is not
+      memoized: extracting it again retries the backend. A relation with
+      a NaN or infinite relation or link score is rejected with reason
+      LowScore. A fact's confidence is the minimum of its relation score
+      and its two link scores. Output holds one fact per (subject,
+      predicate, object), with the highest confidence, sorted by that
+      triple. A backend error yields no facts for the sentences it
+      covers, counts as one failure per episode in stats(), and keeps its
+      message, with the episode id, in errors(); when a batch of several
+      sentences fails, each sentence is retried alone, so one bad
+      sentence costs only its own facts. The memo, rejected() and
+      errors() keep at most memo_capacity episodes and log_capacity
+      entries (newest kept), and CachedBackend at most capacity
+      sentences. The GLiNER backend skips relation extraction for a
+      sentence with no entity the schema allows as a subject (gline-rs
+      rejects an empty label list) and still returns that sentence's
+      mentions.
     kind: property
     risk: medium
     scope:
@@ -146,17 +155,38 @@ obligations:
       valid byte ranges of their own sentence, and a mention's text is the
       sentence text at its span, so negation and linking judge the same
       words. A relation with any other span produces no fact and is reported
-      with reason BadSpan; no span makes extraction panic. Sentences are not
-      split inside numbers ("2.5"), after titles ("Dr."), or after
-      abbreviations and initials ("Corp.", "U.S.") followed by a lower-case
-      word, nor at an ellipsis followed by one.
+      with reason BadSpan; no span makes extraction panic. Object spans from
+      gline-rs are mapped back with the sentence offset measured from the
+      prompt gline-rs builds. Sentences are not split inside numbers
+      ("2.5"), after titles ("Dr.", "St. Louis"), or after abbreviations and
+      initials ("Corp.", "U.S.", "Jr.", "Main St.") followed by a lower-case
+      word, nor at an ellipsis followed by one; "Jr.", "Sr." and "Main St."
+      followed by a capitalised word end the sentence.
     kind: property
     risk: high
     scope:
       - src/extract/pipeline.rs::run
       - src/extract/pipeline.rs::split_sentences
       - src/extract/gline.rs::map_relations
+      - src/extract/gline.rs::relation_prompt_offset
       - src/extract/link.rs::GlinkerLinker
+  - id: SPEC-7.1-O6
+    says: >
+      A relation that is only possible, planned or conditional produces no
+      fact and is reported with reason Hedged. It is hedged when a modal or
+      intent word ("might", "may", "will", "would", "plans to", "wants to",
+      "is considering", "applied to") governs the object with the scope rules
+      of a pre-negation trigger (after the subject, within the window, not
+      past a termination term, another uncoordinated mention or out of a
+      comma-enclosed aside), or a conditional ("if", "whether", "unless")
+      precedes the object with no termination term between. "May" written
+      with a capital past the first word is the month, not a modal. Negation
+      is checked first, so a negated relation is reported as Negated.
+    kind: property
+    risk: high
+    scope:
+      - src/extract/negex.rs::hedged_with
+      - src/extract/pipeline.rs::run
 ```
 
 ## 7.2 Out of scope
@@ -167,6 +197,9 @@ obligations:
   asserted; the end time is a supersession, so it belongs to the bi-temporal
   layer rather than to extraction.
 - Coreference for "we", "our" and other plural first-person forms.
+- Recording hedged relations as possibilities (SPEC-7.1-O6 only keeps them
+  out of the facts), and hedges expressed without a trigger word ("Bob's
+  move to Acme is on the table").
 - Accuracy targets for the ONNX models and the entity database. Measure those
   with MCC on a labelled set: `examples/extraction_eval.rs` over
   `benchmarks/extraction_gold.tsv` scores the whole pipeline, once with the

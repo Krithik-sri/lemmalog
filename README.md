@@ -126,6 +126,11 @@ huggingface-cli download onnx-community/gliner-multitask-large-v0.5 \
   --local-dir ~/.lemmalog/models/gliner-multitask-large-v0.5
 ```
 
+Negated sentences ("Bob no longer works at Acme") and hedged ones ("Bob
+might join Acme", "if Bob joins Acme") assert nothing. An extracted fact's
+confidence is the lowest of its relation score and its two link scores;
+derived facts then combine confidences by product (the semiring above).
+
 Without `LEMMALOG_GLINKER_PIPELINE` (a glinker-rs `pipeline.json`),
 entities link by name, so extracted facts join the ones agents assert by
 hand. If the model is missing, or the binary was built without
