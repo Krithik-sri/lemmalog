@@ -482,7 +482,9 @@ impl<B: RelationBackend, L: EntityLinker> GlinerExtractor<B, L> {
                     .map(span)
                     .filter(|s| *s != span(&r.subject) && *s != span(&r.object))
                     .collect();
-                if self.negex.negated_with(sentence, span(&r.object), r.subject.start, &others) {
+                if self.negex.negated_with(sentence, span(&r.object), r.subject.start, &others)
+                    || (pred == "likes" && super::negex::dislikes_between(sentence, span(&r.subject), span(&r.object)))
+                {
                     self.reject(ep, r, RejectReason::Negated);
                     continue;
                 }

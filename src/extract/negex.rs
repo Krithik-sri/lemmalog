@@ -19,6 +19,21 @@
 //! "can't wait", "doesn't mind", "never stopped", "hasn't left", ...) contain
 //! trigger words but do not negate, so they are matched first and skipped.
 //!
+//! A **subject-side** trigger ("neither", "nor", "not") directly before the
+//! subject negates the relation too: "Neither Bob nor Dana works at Acme",
+//! "Not Bob but Dana works at Acme" (for Bob).
+//!
+//! Scope details: an adverbial termination term ("however", "now", ...)
+//! inside a comma-enclosed aside (", however,") or directly after a trigger
+//! ("does not now work") does not end the scope; a relative pronoun
+//! ("which", "who") ends a post-trigger's scope ("works at Acme, which is
+//! not true of Dana"). "left" followed by a determiner and a noun that is not
+//! a job or an organisation ("left his laptop at Acme") is not cessation.
+//!
+//! [`dislikes_between`] is the relation-specific check for `likes`: a
+//! dislike verb ("dislikes", "hates", "can't stand") between subject and
+//! object contradicts the relation.
+//!
 //! Everything here is deterministic: the same text and spans always give the
 //! same answer, and nothing calls a model.
 
@@ -102,7 +117,7 @@ const PSEUDO: &[&str] = &[
     "never stopped", "never stops", "never quit", "never quits", "never left", "never leaves",
     "hasn't left", "haven't left", "hadn't left", "didn't leave", "doesn't leave",
     "didn't quit", "hasn't quit", "haven't quit", "won't leave", "won't quit",
-    "left for", "leaves for", "leaving for", "quit for",
+    "left for", "leaves for", "leaving for", "quit for", "no doubts",
 ];
 /// Triggers that negate the next entity in their clause.
 const PRE: &[&str] = &[
@@ -131,6 +146,46 @@ const TERM: &[&str] = &[
     "but", "however", "although", "though", "yet", "except", "whereas", "instead",
     "now", "still", ".", ";", "!", "?", ":",
 ];
+/// Termination terms that are adverbs: inside a comma-enclosed aside
+/// (", however,") or straight after a trigger ("does not now work") they do
+/// not end a scope.
+const ADVERB_TERM: &[&str] = &["however", "though", "yet", "instead", "now", "still"];
+/// Relative pronouns end a post-trigger's scope ("works at Acme, which is
+/// not true of Dana"): the trigger belongs to the relative clause.
+const POST_TERM: &[&str] = &["which", "who", "whom", "whose"];
+/// Triggers that negate the subject they stand directly before ("Neither
+/// Bob nor Dana works at Acme").
+const SUBJ: &[&str] = &["neither", "nor", "not"];
+/// "left" is cessation before these nouns ("left his job at Acme") and an
+/// ordinary verb before any other determiner + noun ("left his laptop").
+const LEFT: &[&str] = &["left", "leaves", "leaving"];
+const DETERMINERS: &[&str] = &["his", "her", "my", "their", "our", "your", "its", "the", "a", "an"];
+const MEMBERSHIP_NOUNS: &[&str] = &[
+    "job", "jobs", "post", "position", "role", "team", "company", "firm", "employer", "organisation",
+    "organization", "group", "board", "department", "club", "band", "school", "university", "college",
+    "startup", "business", "lab", "project", "party", "union", "church", "practice", "agency", "studio",
+    "employment", "career", "staff", "workforce",
+];
+/// Verbs that contradict `likes` ("Bob dislikes sushi").
+const DISLIKE: &[&str] = &[
+    "dislike", "dislikes", "disliked", "disliking", "hate", "hates", "hated", "hating", "detest",
+    "detests", "detested", "loathe", "loathes", "loathed", "despise", "despises", "despised",
+    "can't stand", "cannot stand", "cant stand", "couldn't stand", "can't bear", "cannot bear",
+];
+
+/// Is there a dislike verb ("dislikes", "hates", "can't stand") between the
+/// two byte spans (in either order)? Used to reject `likes` relations that
+/// the sentence contradicts.
+pub fn dislikes_between(sentence: &str, a: (usize, usize), b: (usize, usize)) -> bool {
+    let (lo, hi) = if a.0 <= b.0 { (a.1, b.0) } else { (b.1, a.0) };
+    let words: Vec<String> =
+        tokenize(sentence).into_iter().filter(|t| t.start >= lo && t.end <= hi).map(|t| t.lower).collect();
+    DISLIKE.iter().any(|d| {
+        let d: Vec<&str> = d.split_whitespace().collect();
+        words.windows(d.len()).any(|w| w.iter().zip(&d).all(|(x, y)| x == y))
+    })
+}
+
 /// Tokens allowed between two coordinated entities ("Acme, Initech or Globex").
 const COORD: &[&str] = &[",", "or", "and", "nor", "/", "&", "either"];
 
@@ -171,7 +226,16 @@ impl NegEx {
             });
             match found {
                 Some((words, kind)) => {
-                    out.push(Hit { kind: *kind, first: i, last: i + words.len() - 1 });
+                    let ordinary_left = *kind == Kind::Pre
+                        && words.len() == 1
+                        && LEFT.contains(&words[0].as_str())
+                        && toks.get(i + 1).is_some_and(|t| DETERMINERS.contains(&t.lower.as_str()))
+                        && toks.get(i + 2).is_some_and(|t| {
+                            t.lower.chars().all(|c| c.is_alphanumeric())
+                                && !MEMBERSHIP_NOUNS.contains(&t.lower.as_str())
+                        });
+                    let kind = if ordinary_left { Kind::Pseudo } else { *kind };
+                    out.push(Hit { kind, first: i, last: i + words.len() - 1 });
                     i += words.len();
                 }
                 None => i += 1,
@@ -205,9 +269,28 @@ impl NegEx {
         };
         let o_last = toks.iter().rposition(|t| t.start < obj.1).unwrap_or(o_first);
         let hits = self.hits(&toks);
-        let terminated = |a: usize, b: usize| {
-            hits.iter().any(|h| h.kind == Kind::Term && h.first > a && h.last < b)
+        let tok = |i: usize| toks.get(i).map_or("", |t| t.lower.as_str());
+        // the last token of each trigger, for "does not now work"
+        let trigger_end = |i: usize| hits.iter().any(|h| matches!(h.kind, Kind::Pre | Kind::Sent) && h.last == i);
+        let ends_scope = |h: &Hit| {
+            if h.kind != Kind::Term {
+                return false;
+            }
+            if h.first == h.last && ADVERB_TERM.contains(&tok(h.first)) {
+                let aside = h.first > 0 && tok(h.first - 1) == "," && tok(h.last + 1) == ",";
+                // straight after a trigger, or after a trigger and an aside
+                // ("does not, as far as I know, still work")
+                let mut j = h.first.checked_sub(1);
+                if let Some(c) = j.filter(|&c| tok(c) == ",") {
+                    j = (0..c).rev().find(|&k| tok(k) == ",").and_then(|k| k.checked_sub(1));
+                }
+                let after_trigger = j.is_some_and(trigger_end);
+                return !aside && !after_trigger;
+            }
+            true
         };
+        let terminated = |a: usize, b: usize| hits.iter().any(|h| h.first > a && h.last < b && ends_scope(h));
+        let rel_clause = |a: usize, b: usize| (a + 1..b).any(|i| POST_TERM.contains(&tok(i)));
         let comma = |a: usize, b: usize| (a + 1..b).any(|i| toks[i].lower == ",");
         // token ranges of the other mentions, ignoring any overlapping the object
         let other: Vec<(usize, usize)> = others
@@ -235,6 +318,9 @@ impl NegEx {
         };
         let a_tok = toks.iter().position(|t| t.start >= anchor).unwrap_or(0);
         hits.iter().any(|h| match h.kind {
+            // "Neither Bob nor Dana ...", "Not Bob but Dana ...": a trigger
+            // directly before the subject negates the subject's relation
+            Kind::Pre if h.first == h.last && h.last + 1 == a_tok && a_tok < o_first && SUBJ.contains(&tok(h.first)) => true,
             Kind::Pre => {
                 toks[h.first].start >= anchor
                     && h.last < o_first
@@ -249,6 +335,7 @@ impl NegEx {
                 h.first > o_last
                     && dist(o_last, h.first) <= self.window
                     && !terminated(o_last, h.first)
+                    && !rel_clause(o_last, h.first)
                     && !blocked_post(h.first)
             }
             Kind::Sent => h.last < o_first && !terminated(h.last, o_first),
