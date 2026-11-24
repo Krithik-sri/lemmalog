@@ -1,0 +1,43 @@
+name: obligations
+
+# obligations.lock pins spec/extraction.md's obligations and the tests tagged
+# `// obligation: <id>`. A PR that changes either fails here until the
+# approver re-locks (scripts/check-obligations.py build ...).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lock:
+    name: lock is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # criteria_commit must be an ancestor of HEAD
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+      - run: python scripts/check-obligations.py verify
+
+  checks:
+    name: tagged checks pass
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # every test file that holds a tagged check; glinker_e2e_test needs a
+      # glinker-rs pipeline dir and runs only with the glinker feature
+      - run: >
+          cargo test --features mcp
+          --test extraction_test
+          --test extraction_review_test
+          --test extraction_followup_test
+          --test default_extraction_test
