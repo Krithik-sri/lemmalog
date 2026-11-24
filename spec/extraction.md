@@ -27,9 +27,11 @@ line-protocol facts about the same entity.
 
 The obligations below are what this change promises. Each one has
 tagged Rust tests (`// obligation: <id>`) under `tests/`. `obligations.lock`
-on `main` pins the obligations and the tests, so a later PR cannot weaken
-them unnoticed: CI runs `scripts/check-obligations.py`, which fails while
-the lock is stale, and the approver re-locks with its `build` mode.
+on `main` pins the obligations, the tests, the helpers they use and the data
+files an obligation lists under `fixtures:`, so a later PR cannot weaken
+them unnoticed (dropping hard sentences from a labelled set included).
+CI runs `scripts/check-obligations.py`, which fails while the lock is
+stale, and the approver re-locks with its `build` mode.
 
 ## 7.1 Obligations
 
@@ -73,6 +75,9 @@ obligations:
       - src/extract/negex.rs::negated_with
       - src/extract/negex.rs::dislikes_between
       - src/extract/pipeline.rs::run
+    fixtures:
+      - tests/negex_tuning.tsv
+      - tests/negex_heldout.tsv
   - id: SPEC-7.1-O2
     says: >
       Every emitted fact's subject and object are canonical ids returned by the
