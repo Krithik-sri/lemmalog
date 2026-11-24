@@ -12,10 +12,10 @@
 //!                           ~/.lemmalog/lib/libonnxruntime.so, .dylib on
 //!                           macOS, if it exists; otherwise next to the
 //!                           executable, then the system library path)
-//! LEMMALOG_ORT_EP           openvino (default with the `openvino` feature)
-//!                           or cpu; OpenVINO is used only when the loaded
-//!                           ONNX Runtime has its provider (onnxruntime-
-//!                           openvino, as scripts/install.sh fetches)
+//! LEMMALOG_ORT_EP           auto (default: CUDA, then OpenVINO, then CPU,
+//!                           whichever the loaded ONNX Runtime can run),
+//!                           cuda, openvino or cpu; see gline::ExecutionProvider
+//! LEMMALOG_CUDA_DEVICE      CUDA device number (default 0)
 //! LEMMALOG_OPENVINO_DEVICE  AUTO:GPU,CPU (default), CPU, GPU, NPU, ...
 //! ```
 //!

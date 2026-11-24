@@ -111,22 +111,29 @@ cargo build --release --features mcp,glinker                 # LLM-free extracti
 cargo build --release --no-default-features --features mcp   # line protocol only
 ```
 
-GLiNER extraction is a default feature, running on Intel OpenVINO. The
-build needs no network access: ONNX Runtime is loaded at run time, from
-`ORT_DYLIB_PATH`, else `~/.lemmalog/lib/libonnxruntime.so` (`.dylib` on
-macOS), else next to the binary or the system library path.
-`scripts/install.sh` puts it in `~/.lemmalog/lib`: on Linux x86_64, Intel's
-onnxruntime-openvino 1.20.0 build (ONNX Runtime with the OpenVINO execution
-provider and OpenVINO's CPU/GPU/NPU plugins), elsewhere Microsoft's plain
-ONNX Runtime 1.20.1 (`LEMMALOG_ORT_BUILD=cpu` for that everywhere).
+GLiNER extraction is a default feature, running on an NVIDIA GPU (CUDA),
+Intel OpenVINO or CPU. The build needs no network access: ONNX Runtime is
+loaded at run time, from `ORT_DYLIB_PATH`, else
+`~/.lemmalog/lib/libonnxruntime.so` (`.dylib` on macOS), else next to the
+binary or the system library path. `scripts/install.sh` puts one in
+`~/.lemmalog/lib` (`LEMMALOG_ORT_BUILD`, default `auto`):
 
-The models run on OpenVINO when the loaded ONNX Runtime has its provider,
-on device `LEMMALOG_OPENVINO_DEVICE` (default `AUTO:GPU,CPU`: an Intel GPU
-if present, else CPU; `CPU`, `GPU`, `NPU` pick one, and a device that isn't
-there fails the load). With a plain ONNX Runtime, or `LEMMALOG_ORT_EP=cpu`,
-they run on ONNX Runtime's CPU provider. The server logs which one at the
-first model load. If ONNX Runtime can't be loaded at all, observe says so
-and keeps accepting line protocol; nothing crashes.
+| Build | When `auto` picks it | What it is |
+|---|---|---|
+| `vg-ort` | an NVIDIA GPU is present (`nvidia-smi`) | ONNX Runtime 1.24.2 with the CUDA provider, from the `innoura/vg-ort:1.24.2` image (docker/podman) or a saved image tarball (`LEMMALOG_ORT_URL`); needs CUDA 12 and cuDNN 9 |
+| `openvino` | Linux x86_64 | Intel's onnxruntime-openvino 1.20.0 (OpenVINO provider and CPU/GPU/NPU plugins) |
+| `cpu` | otherwise | Microsoft's ONNX Runtime 1.20.1 |
+
+Each falls back to the next if it can't be fetched. At run time
+`LEMMALOG_ORT_EP` picks the execution provider: `auto` (default) uses CUDA
+if the loaded ONNX Runtime has it and CUDA/cuDNN load, else OpenVINO if it
+has that, else CPU; `cuda`, `openvino` or `cpu` force one (a forced one
+that can't be used fails the load). Devices: `LEMMALOG_CUDA_DEVICE`
+(default 0), `LEMMALOG_OPENVINO_DEVICE` (default `AUTO:GPU,CPU`: an Intel
+GPU if present, else CPU). The server logs the provider, and why an
+accelerator wasn't used, at the first model load. If ONNX Runtime can't be
+loaded at all, observe says so and keeps accepting line protocol; nothing
+crashes.
 `--no-default-features --features gliner-download,…` builds the old way,
 downloading ONNX Runtime at build time and linking it.
 

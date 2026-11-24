@@ -12,13 +12,21 @@
 # (LEMMALOG_FEATURES=mcp for a protocol-only build; a list with
 # gliner-download builds the old statically linked way). LEMMALOG_GLINER_DIR
 # (default ~/.lemmalog/models/gliner-multitask-large-v0.5) — GLiNER model.
-# ONNX Runtime: ORT_DYLIB_PATH if set; otherwise fetched into ~/.lemmalog/lib.
-# On Linux x86_64 that is Intel's onnxruntime-openvino $ORT_OPENVINO_VERSION
-# build from PyPI (ONNX Runtime with the OpenVINO execution provider and
-# OpenVINO's CPU/GPU/NPU plugins; needs python3), elsewhere Microsoft's plain
-# ONNX Runtime $ORT_VERSION. LEMMALOG_ORT_BUILD=cpu fetches the plain build
-# everywhere; LEMMALOG_FETCH_ORT=0 skips; LEMMALOG_ORT_URL points at a mirror
-# (a .whl is unpacked as the OpenVINO build, a .tgz as the plain one).
+# ONNX Runtime: ORT_DYLIB_PATH if set; otherwise put in ~/.lemmalog/lib, by
+# LEMMALOG_ORT_BUILD:
+#   auto (default)  vg-ort on a machine with an NVIDIA GPU (nvidia-smi works),
+#                   else openvino on Linux x86_64, else cpu; each falls back
+#                   to the next if it cannot be fetched
+#   vg-ort          ONNX Runtime $ORT_VG_VERSION with the CUDA provider, from
+#                   the $ORT_VG_IMAGE image (LEMMALOG_ORT_IMAGE; docker or
+#                   podman), or from a saved image tarball given as
+#                   LEMMALOG_ORT_URL (docker save / OCI layout, .tar[.gz]).
+#                   Runs on the GPU when CUDA 12 and cuDNN 9 are installed.
+#   openvino        Intel's onnxruntime-openvino $ORT_OPENVINO_VERSION from
+#                   PyPI (OpenVINO provider + CPU/GPU/NPU plugins; python3)
+#   cpu             Microsoft's plain ONNX Runtime $ORT_VERSION
+# LEMMALOG_FETCH_ORT=0 skips; LEMMALOG_ORT_URL overrides the download
+# (a .whl for openvino, a .tgz for cpu, an image tarball for vg-ort).
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -36,6 +44,8 @@ GLINER_DIR="${LEMMALOG_GLINER_DIR:-$HOME/.lemmalog/models/gliner-multitask-large
 # the ONNX Runtime version ort 2.0.0-rc.9 is built against (1.20.x)
 ORT_VERSION="1.20.1"
 ORT_OPENVINO_VERSION="1.20.0"
+ORT_VG_VERSION="1.24.2"
+ORT_VG_IMAGE="${LEMMALOG_ORT_IMAGE:-innoura/vg-ort:$ORT_VG_VERSION}"
 ORT_LIB_DIR="$HOME/.lemmalog/lib"
 case "$(uname -s)" in
     Darwin) ORT_LIB=libonnxruntime.dylib ;;
@@ -53,29 +63,66 @@ fetch_ort() {
         echo "-- ONNX Runtime: $ORT_LIB_DIR/$ORT_LIB"
         return
     fi
-    local url="${LEMMALOG_ORT_URL:-}"
-    if [ "${LEMMALOG_FETCH_ORT:-1}" != "0" ] && have curl && have python3 \
-        && { case "$url" in *.whl) true ;; "") [ "${LEMMALOG_ORT_BUILD:-openvino}" = "openvino" ] && [ "$(uname -s)-$(uname -m)" = "Linux-x86_64" ] ;; *) false ;; esac; }; then
-        fetch_ort_openvino "$url" && return
-        echo "-- falling back to the plain ONNX Runtime build"
-        url=""
+    if [ "${LEMMALOG_FETCH_ORT:-1}" = "0" ]; then
+        ort_hint
+        return
     fi
-    local pkg=""
+    local want="${LEMMALOG_ORT_BUILD:-auto}" order
+    case "$want" in
+        auto)
+            order=""
+            have nvidia-smi && nvidia-smi -L >/dev/null 2>&1 && order="vg-ort"
+            [ "$(uname -s)-$(uname -m)" = "Linux-x86_64" ] && order="$order openvino"
+            order="$order cpu" ;;
+        vg-ort) order="vg-ort openvino cpu" ;;
+        openvino) order="openvino cpu" ;;
+        cpu) order="cpu" ;;
+        *) echo "-- unknown LEMMALOG_ORT_BUILD=$want (auto, vg-ort, openvino or cpu)"; return ;;
+    esac
+    local b
+    for b in $order; do
+        case "$b" in
+            vg-ort) fetch_ort_vg && { cuda_hint; return; } ;;
+            openvino) have python3 && fetch_ort_openvino "$([ "$want" = openvino ] && echo "${LEMMALOG_ORT_URL:-}")" && return ;;
+            cpu) fetch_ort_cpu "$([ "$want" = cpu ] && echo "${LEMMALOG_ORT_URL:-}")" && return ;;
+        esac
+        echo "-- falling back from the $b build"
+    done
+    ort_hint
+}
+
+ort_hint() {
+    echo "-- ONNX Runtime not installed: free text will not be extracted until it is."
+    echo "   Put $ORT_LIB in $ORT_LIB_DIR, or set ORT_DYLIB_PATH."
+}
+
+# Warn when the CUDA build is installed but CUDA 12 / cuDNN 9 are not.
+cuda_hint() {
+    local missing="" l
+    for l in libcudart.so.12 libcublasLt.so.12 libcublas.so.12 libcufft.so.11 libcudnn.so.9; do
+        if ! { ldconfig -p 2>/dev/null | grep -q "$l"; } && ! { [ -n "${LD_LIBRARY_PATH:-}" ] && find ${LD_LIBRARY_PATH//:/ } -maxdepth 1 -name "$l*" 2>/dev/null | grep -q .; }; then
+            missing="$missing $l"
+        fi
+    done
+    if [ -n "$missing" ]; then
+        echo "-- CUDA libraries not found:$missing"
+        echo "   lemmalog runs on CPU until CUDA 12 and cuDNN 9 are installed."
+    fi
+}
+
+# Microsoft's plain ONNX Runtime release. $1: tarball URL, or empty.
+fetch_ort_cpu() {
+    local pkg="" url="$1" tmp
     case "$(uname -s)-$(uname -m)" in
         Linux-x86_64) pkg="onnxruntime-linux-x64-$ORT_VERSION" ;;
         Linux-aarch64|Linux-arm64) pkg="onnxruntime-linux-aarch64-$ORT_VERSION" ;;
         Darwin-arm64) pkg="onnxruntime-osx-arm64-$ORT_VERSION" ;;
         Darwin-x86_64) pkg="onnxruntime-osx-x86_64-$ORT_VERSION" ;;
     esac
-    [ -z "$url" ] && url="https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/$pkg.tgz"
-    if [ "${LEMMALOG_FETCH_ORT:-1}" = "0" ] || [ -z "$pkg$([ -n "${LEMMALOG_ORT_URL:-}" ] && echo x)" ] || ! have curl; then
-        echo "-- ONNX Runtime $ORT_VERSION not installed: free text will not be extracted until it is."
-        echo "   Put $ORT_LIB in $ORT_LIB_DIR, or set ORT_DYLIB_PATH, e.g. from"
-        echo "     https://github.com/microsoft/onnxruntime/releases/tag/v$ORT_VERSION"
-        return
-    fi
+    [ -z "$url" ] && [ -n "$pkg" ] && url="https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/$pkg.tgz"
+    [ -z "$url" ] && return 1
+    have curl || return 1
     echo "==> fetching ONNX Runtime $ORT_VERSION into $ORT_LIB_DIR"
-    local tmp
     tmp="$(mktemp -d)"
     if curl -fsSL "$url" -o "$tmp/ort.tgz" && tar -xzf "$tmp/ort.tgz" -C "$tmp"; then
         mkdir -p "$ORT_LIB_DIR"
@@ -90,10 +137,74 @@ fetch_ort() {
     rm -rf "$tmp"
     if [ -e "$ORT_LIB_DIR/$ORT_LIB" ]; then
         echo "    -> $ORT_LIB_DIR/$ORT_LIB"
-    else
-        echo "-- could not fetch ONNX Runtime from $url"
-        echo "   Put $ORT_LIB in $ORT_LIB_DIR, or set ORT_DYLIB_PATH."
+        return 0
     fi
+    echo "-- could not fetch ONNX Runtime from $url"
+    return 1
+}
+
+# ONNX Runtime with the CUDA provider from the vg-ort image: /ort/lib, taken
+# from a saved image tarball (LEMMALOG_ORT_URL) or with docker/podman.
+fetch_ort_vg() {
+    local tmp url="${LEMMALOG_ORT_URL:-}" engine=""
+    [ "$(uname -s)" = "Linux" ] || return 1
+    tmp="$(mktemp -d)"
+    mkdir -p "$ORT_LIB_DIR"
+    if [ -n "$url" ]; then
+        echo "==> unpacking ONNX Runtime $ORT_VG_VERSION (CUDA) from $url into $ORT_LIB_DIR"
+        if ! { curl -fsSL "$url" -o "$tmp/image.tar" && have python3 && python3 - "$tmp/image.tar" "$ORT_LIB_DIR" <<'PY'
+import io, json, os, sys, tarfile
+image, dest = sys.argv[1], sys.argv[2]
+outer = tarfile.open(image)  # docker save or OCI layout, gzip or not
+names = set(outer.getnames())
+manifest = json.load(outer.extractfile("manifest.json"))
+found = 0
+for layer in manifest[0]["Layers"]:
+    data = outer.extractfile(layer).read()
+    with tarfile.open(fileobj=io.BytesIO(data)) as t:
+        for m in t.getmembers():
+            path = m.name.lstrip("./")
+            if not path.startswith("ort/lib/") or path.endswith("/"):
+                continue
+            base = os.path.basename(path)
+            if not base.startswith("libonnxruntime"):
+                continue
+            out = os.path.join(dest, base)
+            if os.path.lexists(out):
+                os.remove(out)
+            if m.issym() and "/" not in m.linkname and ".." not in m.linkname:
+                os.symlink(m.linkname, out)
+            elif m.isfile():
+                with open(out, "wb") as f:
+                    f.write(t.extractfile(m).read())
+                os.chmod(out, 0o755)
+            else:
+                continue
+            found += 1
+if not found:
+    sys.exit("no /ort/lib/libonnxruntime* in the image")
+PY
+        }; then
+            rm -rf "$tmp"; echo "-- could not unpack the vg-ort image from $url"; return 1
+        fi
+    else
+        if have docker; then engine=docker; elif have podman; then engine=podman; else rm -rf "$tmp"; return 1; fi
+        echo "==> copying ONNX Runtime $ORT_VG_VERSION (CUDA) from $ORT_VG_IMAGE into $ORT_LIB_DIR"
+        local cid
+        if ! cid="$($engine create "$ORT_VG_IMAGE" 2>/dev/null)"; then
+            rm -rf "$tmp"; echo "-- could not get the $ORT_VG_IMAGE image ($engine create failed)"; return 1
+        fi
+        $engine cp "$cid:/ort/lib/." "$tmp/" >/dev/null 2>&1 || true
+        $engine rm "$cid" >/dev/null 2>&1 || true
+        cp -P "$tmp"/libonnxruntime* "$ORT_LIB_DIR/" 2>/dev/null || true
+    fi
+    rm -rf "$tmp"
+    if [ -e "$ORT_LIB_DIR/$ORT_LIB" ]; then
+        echo "    -> $ORT_LIB_DIR/$ORT_LIB (CUDA execution provider included)"
+        return 0
+    fi
+    echo "-- no $ORT_LIB in the vg-ort image"
+    return 1
 }
 
 # Intel's onnxruntime-openvino wheel: unpack its native libraries (ONNX

@@ -68,7 +68,7 @@ mcp = ["dep:serde_json"]
 # default loads the ONNX Runtime shared library at run time, so building
 # needs no network access; see extract::setup for where the library is
 # looked for.
-default = ["openvino"]
+default = ["openvino", "cuda"]
 # Model-based extraction without an LLM: gline-rs NER + relation extraction.
 # On its own it links an ONNX Runtime found at build time (ORT_LIB_LOCATION
 # or a system install); the two features below pick the usual modes.
@@ -80,6 +80,11 @@ gliner-load-dynamic = ["gliner", "gline-rs/load-dynamic", "orp/load-dynamic", "g
 # build, onnxruntime-openvino 1.20.0); with a plain ONNX Runtime it falls
 # back to CPU. Selected at run time: LEMMALOG_ORT_EP, LEMMALOG_OPENVINO_DEVICE.
 openvino = ["gliner-load-dynamic", "dep:ort", "ort/openvino", "orp/openvino", "gline-rs/openvino", "glinker-rs?/openvino"]
+# Run GLiNER on an NVIDIA GPU when the loaded ONNX Runtime has the CUDA
+# execution provider and CUDA 12 + cuDNN 9 are installed (scripts/install.sh
+# takes such a build from the innoura/vg-ort image, ONNX Runtime 1.24.2);
+# otherwise the automatic choice moves on to OpenVINO, then CPU.
+cuda = ["gliner-load-dynamic", "dep:ort", "ort/cuda", "orp/cuda", "gline-rs/cuda", "glinker-rs?/cuda"]
 # Download ONNX Runtime at build time and link it (needs network access to
 # parcel.pyke.io while building; the old behaviour). Use it with
 # --no-default-features, or the default's load-dynamic stays on too.
