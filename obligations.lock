@@ -1,9 +1,23 @@
 {
   "version": 2,
   "approver": "Dhanesh",
-  "criteria_commit": "1167d391abaad055bc1c6c9df8cbe3272e8b8a0e",
-  "obligations_digest": "4e2b3a27873241a45daad37e5973b87801b0dbb82c80472408d43f65f6d789b5",
+  "criteria_commit": "02e9f8ac8c85d384f406beb8e3c5867aaa6676f2",
+  "obligations_digest": "a549906d4cca1957940785c58a8d3de56fbb8a6087bf4d9273eeaff944e66943",
   "entries": [
+    {
+      "obligation": "SPEC-7.1-O1",
+      "path": "tests/default_extraction_test.rs",
+      "name": "dislike_verbs_contradict_likes",
+      "lang": "rust",
+      "hash": "f475a3155f8f3d7bdf956fc8fb6f01c16cc5234e2384ebb2d585269d1f95b1e4"
+    },
+    {
+      "obligation": "SPEC-7.1-O1",
+      "path": "tests/default_extraction_test.rs",
+      "name": "negex_subject_side_aside_adverbs_relative_clauses_and_ordinary_left",
+      "lang": "rust",
+      "hash": "28e77bbd5ebc7620bdb8ab38f2121d334d3e19fa79a6a34f432169e04fa2efe0"
+    },
     {
       "obligation": "SPEC-7.1-O1",
       "path": "tests/extraction_review_test.rs",
